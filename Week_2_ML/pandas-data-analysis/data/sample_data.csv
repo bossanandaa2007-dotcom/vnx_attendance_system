@@ -1,0 +1,7 @@
+| id | name   | age | marks | city      |
+| -- | ------ | --- | ----- | --------- |
+| 1  | Rahul  | 21  | 78    | Chennai   |
+| 2  | Anu    | 22  | NaN   | Bangalore |
+| 3  | Ravi   | NaN | 85    | Chennai   |
+| 4  | Meena  | 21  | 90    | Mumbai    |
+| 5  | Karthi | 23  | 55    | Chennai   |
