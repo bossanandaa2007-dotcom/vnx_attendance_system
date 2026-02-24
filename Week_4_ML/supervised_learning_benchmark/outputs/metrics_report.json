@@ -1,0 +1,33 @@
+{
+  "config": {
+    "model": "decision_tree",
+    "test_size": 0.2,
+    "random_state": 42
+  },
+  "results": [
+    {
+      "model": "decision_tree",
+      "accuracy": 0.9666666666666667,
+      "precision_macro": 0.9696969696969697,
+      "recall_macro": 0.9666666666666667,
+      "f1_macro": 0.9665831244778612,
+      "confusion_matrix": [
+        [
+          10,
+          0,
+          0
+        ],
+        [
+          0,
+          9,
+          1
+        ],
+        [
+          0,
+          0,
+          10
+        ]
+      ]
+    }
+  ]
+}

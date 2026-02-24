@@ -1,0 +1,12 @@
+Supervised Learning Benchmark - Iris
+========================================
+model=decision_tree
+test_size=0.2
+random_state=42
+
+Model: decision_tree
+  Accuracy: 0.9667
+  Precision (macro): 0.9697
+  Recall (macro): 0.9667
+  F1 (macro): 0.9666
+  Confusion Matrix: [[10, 0, 0], [0, 9, 1], [0, 0, 10]]
