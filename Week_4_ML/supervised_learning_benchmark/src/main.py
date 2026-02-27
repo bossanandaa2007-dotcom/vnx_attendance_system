@@ -1,4 +1,4 @@
-﻿"""CLI runner for supervised learning benchmark on Iris."""
+"""CLI runner for supervised learning benchmark on Iris."""
 
 from __future__ import annotations
 
@@ -9,15 +9,26 @@ from typing import Any, Dict, List, Tuple
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from sklearn.pipeline import Pipeline
 
 from data_loader import load_data
 from decision_tree_model import build_tree
-from evaluate import evaluate_model
+from evaluate import evaluate_model, save_confusion_matrix_plot
 from knn_model import build_knn
+from random_forest_model import build_random_forest
 from svm_model import build_svm_linear, build_svm_rbf
+from tune_random_forest import tune_random_forest
 
-MODEL_CHOICES = ["knn", "svm_linear", "svm_rbf", "decision_tree", "all"]
+MODEL_CHOICES = [
+    "knn",
+    "svm_linear",
+    "svm_rbf",
+    "decision_tree",
+    "random_forest",
+    "rf_tuned",
+    "all",
+]
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,6 +47,7 @@ def get_models(selection: str, random_state: int) -> Dict[str, Pipeline]:
         "svm_linear": build_svm_linear(C=1.0),
         "svm_rbf": build_svm_rbf(C=1.0, gamma="scale"),
         "decision_tree": build_tree(max_depth=3, random_state=random_state, use_scaler=False),
+        "random_forest": build_random_forest(random_state=random_state),
     }
     if selection == "all":
         return registry
@@ -85,6 +97,22 @@ def save_reports(
 
     txt_path.write_text("\n".join(lines).strip() + "\n", encoding="utf-8")
     return json_path, txt_path
+
+
+def save_tuning_artifacts(
+    output_dir: Path,
+    best_params: Dict[str, Any],
+    cv_results_df: pd.DataFrame,
+) -> Tuple[Path, Path]:
+    """Save GridSearchCV outputs to output directory."""
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    best_params_path = output_dir / "best_params.json"
+    grid_results_path = output_dir / "gridsearch_results.csv"
+
+    best_params_path.write_text(json.dumps(best_params, indent=2), encoding="utf-8")
+    cv_results_df.head(50).to_csv(grid_results_path, index=False)
+    return best_params_path, grid_results_path
 
 
 def save_combined_confusion_matrix(
@@ -139,18 +167,56 @@ def main() -> None:
         random_state=args.random_state,
     )
 
-    models = get_models(selection=args.model, random_state=args.random_state)
-
     results: List[Dict[str, Any]] = []
     confusion_matrices: List[np.ndarray] = []
     names: List[str] = []
+    model_specific_paths: List[Path] = []
 
-    for name, model in models.items():
-        model.fit(X_train, y_train)
-        metrics, cm = evaluate_model(name=name, model=model, X_test=X_test, y_test=y_test)
+    if args.model == "rf_tuned":
+        best_estimator, best_params, cv_results_df = tune_random_forest(
+            X_train=X_train,
+            y_train=y_train,
+            random_state=args.random_state,
+        )
+        best_params_path, grid_results_path = save_tuning_artifacts(
+            output_dir=output_dir,
+            best_params=best_params,
+            cv_results_df=cv_results_df,
+        )
+
+        metrics, cm = evaluate_model(name="rf_tuned", model=best_estimator, X_test=X_test, y_test=y_test)
         results.append(metrics)
         confusion_matrices.append(cm)
-        names.append(name)
+        names.append("rf_tuned")
+
+        model_png_path, _ = save_confusion_matrix_plot(
+            cm=cm,
+            labels=class_names,
+            output_dir=output_dir,
+            model_name="rf_tuned",
+        )
+        model_specific_paths.append(model_png_path)
+
+        print("Best params (rf_tuned):")
+        print(json.dumps(best_params, indent=2))
+        print(f"Saved best params: {best_params_path}")
+        print(f"Saved grid search results: {grid_results_path}")
+    else:
+        models = get_models(selection=args.model, random_state=args.random_state)
+        for name, model in models.items():
+            model.fit(X_train, y_train)
+            metrics, cm = evaluate_model(name=name, model=model, X_test=X_test, y_test=y_test)
+            results.append(metrics)
+            confusion_matrices.append(cm)
+            names.append(name)
+
+            model_png_path, _ = save_confusion_matrix_plot(
+                cm=cm,
+                labels=class_names,
+                output_dir=output_dir,
+                model_name=name,
+            )
+            model_specific_paths.append(model_png_path)
 
     json_path, txt_path = save_reports(
         output_dir=output_dir,
@@ -170,6 +236,8 @@ def main() -> None:
     print(f"Saved JSON report: {json_path}")
     print(f"Saved TXT report: {txt_path}")
     print(f"Saved confusion matrix image: {png_path}")
+    for path in model_specific_paths:
+        print(f"Saved per-model confusion matrix image: {path}")
 
 
 if __name__ == "__main__":

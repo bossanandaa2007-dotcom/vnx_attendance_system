@@ -1,0 +1,6 @@
+{
+  "rf__max_depth": null,
+  "rf__max_features": "sqrt",
+  "rf__min_samples_split": 10,
+  "rf__n_estimators": 100
+}
