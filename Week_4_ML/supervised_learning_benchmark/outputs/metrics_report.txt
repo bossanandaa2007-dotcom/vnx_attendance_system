@@ -1,10 +1,10 @@
 Supervised Learning Benchmark - Iris
 ========================================
-model=decision_tree
+model=rf_tuned
 test_size=0.2
 random_state=42
 
-Model: decision_tree
+Model: rf_tuned
   Accuracy: 0.9667
   Precision (macro): 0.9697
   Recall (macro): 0.9667

@@ -1,12 +1,12 @@
 {
   "config": {
-    "model": "decision_tree",
+    "model": "rf_tuned",
     "test_size": 0.2,
     "random_state": 42
   },
   "results": [
     {
-      "model": "decision_tree",
+      "model": "rf_tuned",
       "accuracy": 0.9666666666666667,
       "precision_macro": 0.9696969696969697,
       "recall_macro": 0.9666666666666667,
