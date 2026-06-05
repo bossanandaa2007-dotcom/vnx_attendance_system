@@ -1,3 +1,8 @@
+import os
+
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+
 import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import layers
@@ -16,7 +21,8 @@ x_test = x_test / 255.0
 
 # Build Dense Neural Network
 model = keras.Sequential([
-    layers.Flatten(input_shape=(28, 28)),
+    keras.Input(shape=(28, 28)),
+    layers.Flatten(),
     layers.Dense(128, activation="relu"),
     layers.Dense(64, activation="relu"),
     layers.Dense(10, activation="softmax")
