@@ -15,9 +15,13 @@ frontend/dist/
 frontend/.env
 backend/.env
 
-# Python cache
+# Python cache / notebooks
 __pycache__/
 *.py[cod]
+.ipynb_checkpoints/
+
+# Separate coursework repos
+Week_*_ML/
 
 # Logs
 *.log
