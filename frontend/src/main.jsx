@@ -1,36 +1,56 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  Activity, AlertTriangle, BarChart3, Camera, Check, ChevronRight,
-  Clock, Download, FileSpreadsheet, GraduationCap, LayoutDashboard, LogOut,
-  Menu, Plus, ScanFace, Search, Settings, ShieldCheck, Square,
-  Trash2, Upload, UserCheck, Users, Wifi, X
+  Activity,
+  AlertTriangle,
+  BarChart3,
+  BookOpen,
+  Camera,
+  Check,
+  Clock,
+  Edit3,
+  GraduationCap,
+  Layers3,
+  LayoutDashboard,
+  LogOut,
+  Menu,
+  Plus,
+  Save,
+  ScanFace,
+  Search,
+  Settings,
+  Trash2,
+  UserCheck,
+  Users,
+  X
 } from "lucide-react";
 import {
   API_BASE_URL,
+  createBatch,
+  createCourse,
   createPerson,
+  deleteBatch,
+  deleteCourse,
   deletePerson,
+  getAttendanceByDate,
   getAttendanceToday,
+  getBatches,
+  getCourses,
+  getEnrollmentUsers,
   getPeople,
   getTimings,
   markAttendance,
-  sendEnrollmentFrame,
   startAttendanceSession,
   startFaceEnrollment,
-  updatePerson
+  updateBatch,
+  updateCourse
 } from "./lib/api";
 import "./styles.css";
 
-const DEFAULT_COURSES = ["Silambam", "Football", "Cricket", "Tuition", "Gym", "Dance", "Music"];
-const DEFAULT_BATCHES = ["Morning A", "Evening A", "Weekend"];
-const PEOPLE = [
-  { id: "p1", name: "Aarav Kumar", phone: "9876543210", code: "VX101", type: "Student", category: "Silambam", batch: "Morning A", status: "Active", enrolled: true },
-  { id: "p2", name: "Meera S", phone: "9876500000", code: "ST201", type: "Staff", category: "Front Desk", batch: "Morning A", status: "Active", enrolled: false },
-  { id: "p3", name: "Kavin Raj", phone: "9876511111", code: "MB301", type: "Member", category: "Gym", batch: "Evening A", status: "Active", enrolled: false }
-];
-const SESSIONS = [{ id: "s1", name: "Morning A", category: "Silambam", start: "06:00", durationSeconds: 2700, state: "Idle" }];
 const ROUTES = {
   dashboard: "/dashboard",
+  courses: "/courses",
+  batches: "/batches",
   students: "/users/students",
   staff: "/users/staff",
   members: "/users/members",
@@ -40,90 +60,17 @@ const ROUTES = {
   settings: "/settings"
 };
 const PATH_TO_PAGE = Object.fromEntries(Object.entries(ROUTES).map(([page, path]) => [path, page]));
-const FIELD_SCHEMAS = {
-  Student: [
-    ["code", "Student ID"], ["name", "Student Name"], ["parentName", "Parent Name"], ["phone", "Parent Contact Number"],
-    ["category", "Category / Program", "select:courses"], ["batch", "Batch Name", "select:batches"], ["level", "Level / Class"], ["timing", "Timing"],
-    ["joiningDate", "Joining Date", "date"], ["status", "Status", "select:status"], ["faceStatus", "Face Enrollment Status", "select:face"], ["notes", "Notes", "textarea"]
-  ],
-  Staff: [
-    ["code", "Staff ID"], ["name", "Staff Name"], ["phone", "Staff Contact Number"], ["email", "Email", "email"],
-    ["designation", "Designation"], ["department", "Department"], ["batch", "Shift Name", "select:batches"], ["timing", "Shift Timing"],
-    ["joiningDate", "Joining Date", "date"], ["status", "Status", "select:status"], ["faceStatus", "Face Enrollment Status", "select:face"], ["notes", "Notes", "textarea"]
-  ],
-  Member: [
-    ["code", "Member ID"], ["name", "Member Name"], ["phone", "Member Contact Number"], ["email", "Email", "email"],
-    ["membershipType", "Membership Type"], ["planName", "Plan Name"], ["category", "Category / Program", "select:courses"], ["startDate", "Start Date", "date"],
-    ["endDate", "End Date", "date"], ["status", "Status", "select:status"], ["faceStatus", "Face Enrollment Status", "select:face"], ["notes", "Notes", "textarea"]
-  ]
+
+const PERSON_CONFIG = {
+  students: { title: "Students", singular: "Student", apiType: "student", icon: GraduationCap },
+  staff: { title: "Staff", singular: "Staff", apiType: "admin", icon: UserCheck },
+  members: { title: "Members", singular: "Member", apiType: "member", icon: Users }
 };
-const SCANS = [
-  { id: "r1", name: "Aarav Kumar", code: "VX101", type: "Student", category: "Silambam", status: "Present", confidence: 96, time: new Date().toISOString() },
-  { id: "r2", name: "Unknown", code: "-", type: "-", category: "-", status: "Unknown", confidence: 41, time: new Date().toISOString() }
-];
-
-function store(key, seed) {
-  const [value, setValue] = useState(() => JSON.parse(localStorage.getItem(key) || "null") || seed);
-  useEffect(() => localStorage.setItem(key, JSON.stringify(value)), [key, value]);
-  return [value, setValue];
-}
-
-function useBackendData() {
-  const [people, setPeople] = useState([]);
-  const [sessions, setSessions] = useState([]);
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [toast, setToast] = useState("");
-
-  const refresh = async () => {
-    setError("");
-    try {
-      const [peopleRows, timingRows, attendanceRows] = await Promise.all([
-        getPeople(),
-        getTimings(),
-        getAttendanceToday()
-      ]);
-      setPeople((peopleRows || []).map(mapApiPerson));
-      setSessions((timingRows || []).map(mapApiTiming));
-      setRecords((attendanceRows || []).map(mapApiAttendance));
-    } catch (err) {
-      setError(err.message || "Unable to load backend data.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => { refresh(); }, []);
-
-  const notify = message => {
-    setToast(message);
-    setTimeout(() => setToast(""), 2800);
-  };
-
-  return { people, setPeople, sessions, setSessions, records, setRecords, loading, error, setError, toast, notify, refresh };
-}
 
 function App() {
-  const mobile = location.pathname.toLowerCase().includes("mobile") || location.search.includes("mobile");
-  const backend = useBackendData();
-  const shared = {
-    people: [backend.people, backend.setPeople],
-    sessions: [backend.sessions, backend.setSessions],
-    records: [backend.records, backend.setRecords],
-    profile: store("vx_profile", { enterprise: "Vernex Gen Technologies", owner: "Admin", phone: "", address: "", sheet: "", logo: "", backend: API_BASE_URL }),
-    courses: store("vx_courses", DEFAULT_COURSES),
-    batches: store("vx_batches", DEFAULT_BATCHES),
-    task: store("vx_mobile_task", null),
-    backend
-  };
-  return mobile ? <MobileDashboard data={shared} /> : <AdminApp data={shared} />;
-}
-
-function AdminApp({ data }) {
   const [logged, setLogged] = useState(localStorage.getItem("vx_auth") === "yes");
   const [page, setPageState] = useState(() => PATH_TO_PAGE[location.pathname] || "dashboard");
-  const [profile] = data.profile;
+  const data = useBackendData();
   const setPage = pageId => {
     setPageState(pageId);
     history.pushState(null, "", ROUTES[pageId] || "/dashboard");
@@ -134,16 +81,56 @@ function AdminApp({ data }) {
     return () => removeEventListener("popstate", sync);
   }, []);
   if (!logged) return <Login onLogin={() => { localStorage.setItem("vx_auth", "yes"); setLogged(true); }} />;
-  return <AdminShell page={page} profile={profile} setPage={setPage} logout={() => { localStorage.removeItem("vx_auth"); setLogged(false); }}>
+  return <Shell page={page} setPage={setPage} logout={() => { localStorage.removeItem("vx_auth"); setLogged(false); }}>
     {page === "dashboard" && <Dashboard data={data} setPage={setPage} />}
-    {page === "students" && <PeoplePage type="Student" data={data} />}
-    {page === "staff" && <PeoplePage type="Staff" data={data} />}
-    {page === "members" && <PeoplePage type="Member" data={data} />}
+    {page === "courses" && <CoursesPage data={data} />}
+    {page === "batches" && <BatchesPage data={data} />}
+    {["students", "staff", "members"].includes(page) && <PeoplePage page={page} data={data} />}
     {page === "enrollment" && <FaceEnrollment data={data} />}
     {page === "scanner" && <AttendanceScanner data={data} />}
     {page === "reports" && <Reports data={data} />}
     {page === "settings" && <SettingsPage data={data} />}
-  </AdminShell>;
+  </Shell>;
+}
+
+function useBackendData() {
+  const [people, setPeople] = useState([]);
+  const [courses, setCourses] = useState([]);
+  const [batches, setBatches] = useState([]);
+  const [timings, setTimings] = useState([]);
+  const [records, setRecords] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [toast, setToast] = useState("");
+
+  const refresh = async () => {
+    setError("");
+    try {
+      const [courseRows, batchRows, peopleRows, timingRows, attendanceRows] = await Promise.all([
+        getCourses(),
+        getBatches(),
+        getPeople(),
+        getTimings(),
+        getAttendanceToday()
+      ]);
+      setCourses(courseRows || []);
+      setBatches(batchRows || []);
+      setPeople((peopleRows || []).map(mapPerson));
+      setTimings(timingRows || []);
+      setRecords((attendanceRows || []).map(mapAttendance));
+    } catch (err) {
+      setError(err.message || "Unable to load FastAPI data.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { refresh(); }, []);
+  const notify = message => {
+    setToast(message);
+    setTimeout(() => setToast(""), 2800);
+  };
+  return { people, courses, batches, timings, records, setPeople, setCourses, setBatches, setRecords, loading, error, toast, notify, refresh };
 }
 
 function Login({ onLogin }) {
@@ -154,354 +141,397 @@ function Login({ onLogin }) {
         <h1 className="text-3xl font-bold text-[#082248]">Admin Login</h1>
         <p className="mt-2 text-sm text-slate-500">Secure local attendance console for your institute.</p>
       </div>
-      <form className="mt-7 grid gap-4" onSubmit={(event) => { event.preventDefault(); onLogin(); }}>
-        <FormInput label="Admin ID" placeholder="Enter admin ID" autoComplete="username" />
-        <FormInput label="Password" placeholder="Enter password" type="password" autoComplete="current-password" />
-        <button className="inline-flex h-11 items-center justify-center rounded-lg bg-[#082248] px-4 font-semibold text-white transition hover:bg-[#12396f]">Login</button>
+      <form className="mt-7 grid gap-4" onSubmit={event => { event.preventDefault(); onLogin(); }}>
+        <FormInput label="Admin ID" placeholder="Enter admin ID" />
+        <FormInput label="Password" placeholder="Enter password" type="password" />
+        <button className="h-11 rounded-lg bg-[#082248] font-semibold text-white">Login</button>
       </form>
-      <div className="mt-5 flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600"><ShieldCheck size={16} /> Face data stays inside your local system.</div>
     </section>
   </main>;
 }
 
-function AdminShell({ children, page, profile, setPage, logout }) {
+function Shell({ children, page, setPage, logout }) {
   const [open, setOpen] = useState(false);
   return <div className="min-h-screen bg-[#f5f7fb] text-slate-950">
-    <Sidebar open={open} page={page} profile={profile} setOpen={setOpen} setPage={setPage} logout={logout} />
-    {open && <button className="fixed inset-0 z-30 bg-slate-950/35 lg:hidden" aria-label="Close navigation" onClick={() => setOpen(false)} />}
+    <aside className={`fixed inset-y-0 left-0 z-40 w-72 border-r border-slate-200 bg-white p-5 transition-transform lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
+      <div className="flex h-full flex-col">
+        <div className="flex items-start justify-between">
+          <Brand />
+          <button className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 lg:hidden" onClick={() => setOpen(false)}><X size={18} /></button>
+        </div>
+        <nav className="mt-8 grid gap-1.5">
+          <NavItem id="dashboard" label="Dashboard" icon={LayoutDashboard} page={page} setPage={setPage} setOpen={setOpen} />
+          <NavItem id="courses" label="Courses" icon={BookOpen} page={page} setPage={setPage} setOpen={setOpen} />
+          <NavItem id="batches" label="Batches" icon={Layers3} page={page} setPage={setPage} setOpen={setOpen} />
+          <UserMenu page={page} setPage={setPage} setOpen={setOpen} />
+          <NavItem id="enrollment" label="Face Enrollment" icon={ScanFace} page={page} setPage={setPage} setOpen={setOpen} />
+          <NavItem id="scanner" label="Attendance Scanner" icon={Camera} page={page} setPage={setPage} setOpen={setOpen} />
+          <NavItem id="reports" label="Reports" icon={BarChart3} page={page} setPage={setPage} setOpen={setOpen} />
+          <NavItem id="settings" label="Settings" icon={Settings} page={page} setPage={setPage} setOpen={setOpen} />
+        </nav>
+        <button className="mt-auto flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold text-slate-600 hover:bg-slate-100" onClick={logout}><LogOut size={18} />Logout</button>
+      </div>
+    </aside>
+    {open && <button className="fixed inset-0 z-30 bg-slate-950/35 lg:hidden" onClick={() => setOpen(false)} aria-label="Close navigation" />}
     <div className="min-w-0 lg:pl-72">
-      <Header profile={profile} onMenu={() => setOpen(true)} />
+      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
+          <button className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 text-[#082248] lg:hidden" onClick={() => setOpen(true)}><Menu size={21} /></button>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-medium text-slate-500">Local-first attendance over the same Wi-Fi network</p>
+            <h1 className="truncate text-lg font-bold text-[#082248] sm:text-xl">VerneX</h1>
+          </div>
+          <ClockBox />
+        </div>
+      </header>
       <main className="mx-auto w-full max-w-7xl px-4 py-5 sm:px-6 lg:px-8">{children}</main>
     </div>
   </div>;
 }
 
-function Sidebar({ open, page, profile, setOpen, setPage, logout }) {
-  return <aside className={`fixed inset-y-0 left-0 z-40 w-72 border-r border-slate-200 bg-white transition-transform duration-200 lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}>
-    <div className="flex h-full flex-col p-5">
-      <div className="flex items-start justify-between">
-        <Brand profile={profile} />
-        <button className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 lg:hidden" onClick={() => setOpen(false)}><X size={18} /></button>
-      </div>
-      <nav className="mt-8 grid gap-1.5">
-        <SidebarItem id="dashboard" label="Dashboard" icon={LayoutDashboard} page={page} setPage={setPage} setOpen={setOpen} />
-        <UserManagementMenu page={page} setPage={setPage} setOpen={setOpen} />
-        <SidebarItem id="enrollment" label="Face Enrollment" icon={ScanFace} page={page} setPage={setPage} setOpen={setOpen} />
-        <SidebarItem id="scanner" label="Attendance Scanner" icon={Camera} page={page} setPage={setPage} setOpen={setOpen} />
-        <SidebarItem id="reports" label="Reports" icon={BarChart3} page={page} setPage={setPage} setOpen={setOpen} />
-        <SidebarItem id="settings" label="Settings" icon={Settings} page={page} setPage={setPage} setOpen={setOpen} />
-      </nav>
-      <button className="mt-auto flex h-11 items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold text-slate-600 hover:bg-slate-100" onClick={logout}><LogOut size={18} />Logout</button>
+function UserMenu({ page, setPage, setOpen }) {
+  const userPages = ["students", "staff", "members"];
+  const active = userPages.includes(page);
+  return <div className="rounded-xl bg-slate-50/70 p-1">
+    <div className={`flex h-11 items-center gap-3 rounded-lg px-3 text-sm font-semibold ${active ? "bg-white text-[#082248] shadow-sm ring-1 ring-slate-200" : "text-slate-600"}`}>
+      <Users size={18} /><span>User Management</span>
     </div>
-  </aside>;
+    <div className="mt-1 grid gap-1 pb-1">
+      <NavItem child id="students" label="Students" icon={GraduationCap} page={page} setPage={setPage} setOpen={setOpen} />
+      <NavItem child id="staff" label="Staff" icon={UserCheck} page={page} setPage={setPage} setOpen={setOpen} />
+      <NavItem child id="members" label="Members" icon={Users} page={page} setPage={setPage} setOpen={setOpen} />
+    </div>
+  </div>;
 }
 
-function SidebarItem({ id, label, icon: Icon, page, setPage, setOpen, child }) {
+function NavItem({ id, label, icon: Icon, page, setPage, setOpen, child }) {
   const active = page === id;
-  return <button className={`${child ? "ml-4 h-9 border-l-2 pl-4" : "h-11 px-3"} flex items-center gap-3 rounded-lg text-left text-sm font-semibold transition ${active ? child ? "border-[#c89736] bg-slate-50 text-[#082248]" : "bg-[#082248] text-white shadow-sm" : child ? "border-slate-200 text-slate-500 hover:border-[#c89736] hover:bg-slate-50 hover:text-[#082248]" : "text-slate-600 hover:bg-slate-100 hover:text-[#082248]"}`} onClick={() => { setPage(id); setOpen(false); }}>
+  return <button className={`${child ? "ml-4 h-9 border-l-2 pl-4" : "h-11 px-3"} flex items-center gap-3 rounded-lg text-left text-sm font-semibold transition ${active ? child ? "border-[#c89736] bg-slate-50 text-[#082248]" : "bg-[#082248] text-white shadow-sm" : child ? "border-slate-200 text-slate-500 hover:border-[#c89736] hover:bg-slate-50" : "text-slate-600 hover:bg-slate-100"}`} onClick={() => { setPage(id); setOpen(false); }}>
     <Icon size={child ? 15 : 18} />{label}
   </button>;
 }
 
-function SidebarGroup({ children }) {
-  return <div className="rounded-xl bg-slate-50/70 p-1">{children}</div>;
-}
-
-function UserManagementMenu({ page, setPage, setOpen }) {
-  const userPages = ["students", "staff", "members"];
-  const [expanded, setExpanded] = useState(userPages.includes(page));
-  const active = userPages.includes(page);
-  useEffect(() => { if (active) setExpanded(true); }, [active]);
-  return <SidebarGroup>
-    <button className={`flex h-11 w-full items-center gap-3 rounded-lg px-3 text-left text-sm font-semibold transition ${active ? "bg-white text-[#082248] shadow-sm ring-1 ring-slate-200" : "text-slate-600 hover:bg-white hover:text-[#082248]"}`} onClick={() => setExpanded(!expanded)}>
-      <Users size={18} />
-      <span className="flex-1">User Management</span>
-      <ChevronRight size={16} className={`transition-transform ${expanded ? "rotate-90" : ""}`} />
-    </button>
-    {expanded && <div className="mt-1 grid gap-1 pb-1">
-      <SidebarItem child id="students" label="Students" icon={GraduationCap} page={page} setPage={setPage} setOpen={setOpen} />
-      <SidebarItem child id="staff" label="Staff" icon={UserCheck} page={page} setPage={setPage} setOpen={setOpen} />
-      <SidebarItem child id="members" label="Members" icon={Users} page={page} setPage={setPage} setOpen={setOpen} />
-    </div>}
-  </SidebarGroup>;
-}
-
-function Header({ profile, onMenu }) {
-  const now = useClock();
-  return <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur">
-    <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
-      <button className="grid h-10 w-10 place-items-center rounded-xl border border-slate-200 text-[#082248] lg:hidden" aria-label="Open navigation" onClick={onMenu}><Menu size={21} /></button>
-      <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-slate-500">Local-first attendance over the same Wi-Fi network</p>
-        <h1 className="truncate text-lg font-bold text-[#082248] sm:text-xl">{profile.enterprise}</h1>
-      </div>
-      <div className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-right">
-        <p className="text-sm font-bold text-[#082248]">{now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</p>
-        <p className="text-xs font-semibold text-slate-500">{now.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" })}</p>
-      </div>
-    </div>
-  </header>;
-}
-
 function Dashboard({ data, setPage }) {
-  const [[people], [records], [profile], [courses]] = [data.people, data.records, data.profile, data.courses];
-  const { loading, error, toast } = data.backend;
-  const status = useBackendStatus(profile.backend);
-  const today = records.filter(r => new Date(r.time).toDateString() === new Date().toDateString());
+  const today = data.records;
   const counts = {
-    students: countType(people, "Student"),
-    staff: countType(people, "Staff"),
-    members: countType(people, "Member"),
+    students: data.people.filter(p => p.person_type === "student").length,
+    staff: data.people.filter(p => p.person_type === "admin").length,
+    members: data.people.filter(p => p.person_type === "member").length,
     present: today.filter(r => r.status === "Present").length,
-    late: today.filter(r => r.status === "Late").length,
-    absent: Math.max(0, people.length - today.filter(r => r.status === "Present").length),
-    pending: people.filter(p => !p.enrolled).length
+    late: today.filter(r => r.status === "Late").length
   };
-  return <PageContainer title={`${profile.enterprise} Dashboard`} subtitle="Professional attendance overview for coaching centres, academies, and small businesses.">
-    {toast && <Notice tone="success">{toast}</Notice>}
-    {error && <Notice tone="error">{error}</Notice>}
-    {loading && <Notice>Loading live backend data...</Notice>}
-    <section className="grid grid-cols-1 gap-5 xl:grid-cols-[1.15fr_.85fr]">
-      <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <p className="text-sm font-bold uppercase tracking-[0.18em] text-[#c89736]">Today attendance</p>
-            <h3 className="mt-3 text-4xl font-black tracking-tight text-[#082248] sm:text-5xl">{counts.present}</h3>
-            <p className="mt-2 text-sm text-slate-500">People marked present from today’s scans.</p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 sm:min-w-64">
-            <MiniMetric label="Late" value={counts.late} />
-            <MiniMetric label="Absent" value={counts.absent} tone="red" />
-            <MiniMetric label="Pending Face" value={counts.pending} tone="gold" />
-            <MiniMetric label="Sheet Sync" value={status} tone={status === "Online" ? "cyan" : "red"} />
-          </div>
-        </div>
-      </div>
-      <div className="grid grid-cols-3 gap-3">
-        <AudienceTile icon={GraduationCap} label="Students" value={counts.students} />
-        <AudienceTile icon={UserCheck} label="Staff" value={counts.staff} />
-        <AudienceTile icon={Users} label="Members" value={counts.members} />
-      </div>
-    </section>
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <StatCard icon={Activity} title="Present" value={counts.present} description="Marked through scanner" accent="cyan" />
-      <StatCard icon={Clock} title="Late" value={counts.late} description="Late entries today" accent="gold" />
-      <StatCard icon={AlertTriangle} title="Absent" value={counts.absent} description="Pending attendance marks" accent="red" />
-      <StatCard icon={FileSpreadsheet} title="Sheet Sync" value={status} description={profile.sheet || "Google Sheet not connected"} accent={status === "Online" ? "cyan" : "red"} />
+  return <Page title="Dashboard" subtitle="Course-first attendance overview for VerneX.">
+    <Alerts data={data} />
+    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <Stat icon={BookOpen} label="Courses" value={data.courses.length} />
+      <Stat icon={Layers3} label="Batches" value={data.batches.length} />
+      <Stat icon={GraduationCap} label="Students" value={counts.students} />
+      <Stat icon={Activity} label="Present Today" value={counts.present} />
+      <Stat icon={Clock} label="Late Today" value={counts.late} />
     </div>
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
-      <Card title="Course / Batch Summary" action={<button className="text-sm font-semibold text-[#082248]" onClick={() => setPage("settings")}>Manage</button>}>
+      <Card title="Course / Batch Summary" action={<button className="text-sm font-semibold text-[#082248]" onClick={() => setPage("courses")}>Manage</button>}>
         <div className="grid gap-3">
-          {courses.map(course => <div key={course} className="flex items-center justify-between rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <div><p className="font-semibold text-slate-900">{course}</p><p className="text-sm text-slate-500">{people.filter(p => p.category === course).length} users assigned</p></div>
-            <ChevronRight className="text-slate-400" size={18} />
-          </div>)}
+          {data.courses.map(course => <CourseSummary key={course.id} course={course} batches={data.batches.filter(batch => batch.course_id === course.id)} people={data.people} />)}
+          {!data.courses.length && <Empty title="Create a course first" message="Courses are the first step before batches, students, enrollment, and attendance." />}
         </div>
       </Card>
       <Card title="Recent Attendance">
-        <DataTable columns={["Name", "Code", "Type", "Status", "Time"]} rows={today.slice(0, 5).map(r => [r.name, r.code, r.type || "-", <StatusBadge status={r.status} />, new Date(r.time).toLocaleTimeString()])} empty="No scans recorded today." />
+        <DataTable columns={["Name", "Code", "Course", "Batch", "Status", "Time"]} rows={today.slice(0, 6).map(record => [record.person_name, record.person_code, record.course_name, record.batch_name, <Badge status={record.status} />, formatTime(record.marked_time)])} empty="No scans recorded today." />
       </Card>
     </div>
-  </PageContainer>;
+  </Page>;
 }
 
-function PeoplePage({ type, data }) {
-  const [people, setPeople] = data.people;
-  const [, setTask] = data.task;
-  const [courses, setCourses] = data.courses;
-  const [batches, setBatches] = data.batches;
-  const { loading, error, toast, notify, refresh } = data.backend;
-  const blank = {
-    name: "", phone: "", code: "", type, parentName: "", email: "", designation: "", department: "",
-    membershipType: "", planName: "", level: "", timing: "", joiningDate: "", startDate: "", endDate: "",
-    notes: "", category: courses[0] || "", batch: batches[0] || "", status: "Active", faceStatus: "Pending", enrolled: false
-  };
+function CoursesPage({ data }) {
+  const blank = { course_code: "", course_name: "", description: "", status: "active" };
   const [form, setForm] = useState(blank);
-  const [q, setQ] = useState("");
-  const [filter, setFilter] = useState("All");
+  const [editing, setEditing] = useState(null);
   const [message, setMessage] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [newCourse, setNewCourse] = useState("");
-  const [newBatch, setNewBatch] = useState("");
-  const rows = people.filter(p => p.type === type).filter(p => filter === "All" || p.status === filter).filter(p => JSON.stringify(p).toLowerCase().includes(q.toLowerCase()));
   const save = async event => {
     event.preventDefault();
-    if (form.phone.length !== 10) { setMessage("Phone number must contain exactly 10 digits."); return; }
-    setSaving(true);
-    setMessage("");
     try {
-      await createPerson(toPersonPayload(form, type));
-      await refresh();
-      setForm({ ...blank, category: courses[0] || "", batch: batches[0] || "" });
-      notify(`${type} created successfully.`);
-      setMessage(`${type} created successfully.`);
+      if (editing) await updateCourse(editing, form);
+      else await createCourse(form);
+      setForm(blank);
+      setEditing(null);
+      data.notify(editing ? "Course updated." : "Course created.");
+      await data.refresh();
     } catch (err) {
-      setMessage(err.message || `Unable to create ${type.toLowerCase()}.`);
-    } finally {
-      setSaving(false);
+      setMessage(err.message || "Unable to save course.");
+    }
+  };
+  const edit = course => {
+    setEditing(course.id);
+    setForm({ course_code: course.course_code || "", course_name: course.course_name || "", description: course.description || "", status: course.status || "active" });
+  };
+  const remove = async id => {
+    try {
+      await deleteCourse(id);
+      data.notify("Course deleted.");
+      await data.refresh();
+    } catch (err) {
+      setMessage(err.message || "Unable to delete course.");
+    }
+  };
+  return <Page title="Courses" subtitle="Create the course before creating batches and assigning students.">
+    <Alerts data={data} message={message} />
+    <Card title={editing ? "Edit Course" : "Create Course"}>
+      <form className="grid gap-4 md:grid-cols-[160px_1fr_1fr_150px_auto]" onSubmit={save}>
+        <FormInput label="Course Code" value={form.course_code} onChange={e => setForm({ ...form, course_code: e.target.value })} required />
+        <FormInput label="Course Name" value={form.course_name} onChange={e => setForm({ ...form, course_name: e.target.value })} required />
+        <FormInput label="Description" value={form.description || ""} onChange={e => setForm({ ...form, description: e.target.value })} />
+        <FormSelect label="Status" value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} options={statusOptions()} />
+        <div className="flex items-end gap-2">
+          <button className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#082248] px-4 font-semibold text-white"><Save size={16} />Save</button>
+          {editing && <button type="button" className="h-11 rounded-xl border border-slate-200 px-3 font-semibold" onClick={() => { setEditing(null); setForm(blank); }}>Cancel</button>}
+        </div>
+      </form>
+    </Card>
+    <Card title="Course List">
+      <DataTable columns={["Code", "Course", "Description", "Status", "Action"]} rows={data.courses.map(course => [
+        course.course_code,
+        course.course_name,
+        course.description || "-",
+        <Badge status={titleCase(course.status)} />,
+        <RowActions onEdit={() => edit(course)} onDelete={() => remove(course.id)} />
+      ])} empty="Create a course first" />
+    </Card>
+  </Page>;
+}
+
+function BatchesPage({ data }) {
+  const firstCourseId = data.courses[0]?.id || "";
+  const [selectedCourseId, setSelectedCourseId] = useState(firstCourseId);
+  const [editing, setEditing] = useState(null);
+  const [message, setMessage] = useState("");
+  const blank = { batch_name: "", batch_level: "", timing_id: "", status: "active" };
+  const [form, setForm] = useState(blank);
+  useEffect(() => { if (!selectedCourseId && firstCourseId) setSelectedCourseId(firstCourseId); }, [firstCourseId, selectedCourseId]);
+  const courseBatches = data.batches.filter(batch => Number(batch.course_id) === Number(selectedCourseId));
+  const save = async event => {
+    event.preventDefault();
+    if (!selectedCourseId) { setMessage("Create a course first."); return; }
+    const payload = { ...form, course_id: Number(selectedCourseId), timing_id: form.timing_id ? Number(form.timing_id) : null };
+    try {
+      if (editing) await updateBatch(editing, payload);
+      else await createBatch(payload);
+      setForm(blank);
+      setEditing(null);
+      data.notify(editing ? "Batch updated." : "Batch created.");
+      await data.refresh();
+    } catch (err) {
+      setMessage(err.message || "Unable to save batch.");
+    }
+  };
+  const edit = batch => {
+    setEditing(batch.id);
+    setSelectedCourseId(batch.course_id);
+    setForm({ batch_name: batch.batch_name || "", batch_level: batch.batch_level || "", timing_id: batch.timing_id || "", status: batch.status || "active" });
+  };
+  const remove = async id => {
+    try {
+      await deleteBatch(id);
+      data.notify("Batch deleted.");
+      await data.refresh();
+    } catch (err) {
+      setMessage(err.message || "Unable to delete batch.");
+    }
+  };
+  return <Page title="Batches" subtitle="Batches are always created under one selected course.">
+    <Alerts data={data} message={message} />
+    <Card title={editing ? "Edit Batch" : "Create Batch"}>
+      <form className="grid gap-4 md:grid-cols-[1fr_1fr_1fr_160px_auto]" onSubmit={save}>
+        <FormSelect label="Course" value={selectedCourseId} onChange={e => { setSelectedCourseId(e.target.value); setEditing(null); setForm(blank); }} options={data.courses.map(course => ({ value: course.id, label: course.course_name }))} empty="Create a course first" />
+        <FormInput label="Batch Name" value={form.batch_name} onChange={e => setForm({ ...form, batch_name: e.target.value })} required />
+        <FormInput label="Batch Level" value={form.batch_level || ""} onChange={e => setForm({ ...form, batch_level: e.target.value })} />
+        <FormSelect label="Status" value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} options={statusOptions()} />
+        <div className="flex items-end gap-2">
+          <button className="inline-flex h-11 items-center gap-2 rounded-xl bg-[#082248] px-4 font-semibold text-white"><Plus size={16} />Save</button>
+          {editing && <button type="button" className="h-11 rounded-xl border border-slate-200 px-3 font-semibold" onClick={() => { setEditing(null); setForm(blank); }}>Cancel</button>}
+        </div>
+      </form>
+    </Card>
+    <Card title="Batch List">
+      <DataTable columns={["Course", "Batch", "Level", "Status", "Action"]} rows={courseBatches.map(batch => [
+        courseName(data.courses, batch.course_id),
+        batch.batch_name,
+        batch.batch_level || "-",
+        <Badge status={titleCase(batch.status)} />,
+        <RowActions onEdit={() => edit(batch)} onDelete={() => remove(batch.id)} />
+      ])} empty={selectedCourseId ? "Create a batch under this course" : "Create a course first"} />
+    </Card>
+  </Page>;
+}
+
+function PeoplePage({ page, data }) {
+  const config = PERSON_CONFIG[page];
+  const blank = { person_code: "", full_name: "", guardian_name: "", phone: "", email: "", course_id: "", batch_id: "", level_class: "", joining_date: "", status: "active", face_enrollment_status: "not_started", notes: "" };
+  const [form, setForm] = useState(blank);
+  const [query, setQuery] = useState("");
+  const [message, setMessage] = useState("");
+  const availableBatches = useMemo(
+    () => data.batches.filter(batch => Number(batch.course_id) === Number(form.course_id)),
+    [data.batches, form.course_id],
+  );
+  const rows = data.people.filter(person => person.person_type === config.apiType).filter(person => JSON.stringify(person).toLowerCase().includes(query.toLowerCase()));
+  useEffect(() => {
+    if (form.batch_id && !availableBatches.some(batch => Number(batch.id) === Number(form.batch_id))) setForm(current => ({ ...current, batch_id: "" }));
+  }, [form.batch_id, availableBatches]);
+  const save = async event => {
+    event.preventDefault();
+    if (config.apiType === "student" && (!form.course_id || !form.batch_id)) {
+      setMessage("Student must select an existing course and batch.");
+      return;
+    }
+    try {
+      await createPerson(toPersonPayload(form, config.apiType));
+      setForm(blank);
+      data.notify(`${config.singular} created.`);
+      await data.refresh();
+    } catch (err) {
+      setMessage(err.message || `Unable to create ${config.singular.toLowerCase()}.`);
     }
   };
   const remove = async id => {
     try {
       await deletePerson(id);
-      setPeople(people.filter(x => x.id !== id));
-      notify(`${type} deleted.`);
+      data.notify(`${config.singular} deleted.`);
+      await data.refresh();
     } catch (err) {
-      setMessage(err.message || `Unable to delete ${type.toLowerCase()}.`);
+      setMessage(err.message || "Unable to delete user.");
     }
   };
-  return <PageContainer title={`${type} Details`} subtitle={`Create, filter, and manage ${type.toLowerCase()} attendance profiles.`}>
-    {toast && <Notice tone="success">{toast}</Notice>}
-    {error && <Notice tone="error">{error}</Notice>}
-    {loading && <Notice>Loading {type.toLowerCase()} records from FastAPI...</Notice>}
-    <Card title={`Create ${type}`}>
+  return <Page title={`${config.title} Details`} subtitle="Assign people only to existing courses and batches.">
+    <Alerts data={data} message={message} />
+    <Card title={`Create ${config.singular}`}>
       <form className="grid gap-4 md:grid-cols-2" onSubmit={save}>
-        {FIELD_SCHEMAS[type].map(([key, label, kind]) => <FieldRenderer key={key} fieldKey={key} label={label} kind={kind} form={form} setForm={setForm} courses={courses} batches={batches} />)}
-        <div className="flex flex-col gap-2 md:col-span-2 sm:flex-row">
-          <button disabled={saving} className="inline-flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-[#082248] px-4 font-semibold text-white hover:bg-[#12396f] disabled:cursor-not-allowed disabled:opacity-60"><Plus size={17} />{saving ? "Saving..." : `Save ${type}`}</button>
-          <button type="button" className="h-11 rounded-xl border border-slate-200 px-4 font-semibold text-slate-700 hover:bg-slate-50" onClick={() => { setForm(blank); setMessage(""); }}>Reset</button>
-        </div>
-        {message && <p className={`md:col-span-2 rounded-lg px-3 py-2 text-sm font-medium ${message.includes("must") ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>{message}</p>}
+        <FormInput label={`${config.singular} ID`} value={form.person_code} onChange={e => setForm({ ...form, person_code: e.target.value })} required />
+        <FormInput label={`${config.singular} Name`} value={form.full_name} onChange={e => setForm({ ...form, full_name: e.target.value })} required />
+        {config.apiType === "student" && <FormInput label="Parent Name" value={form.guardian_name} onChange={e => setForm({ ...form, guardian_name: e.target.value })} />}
+        <FormInput label={config.apiType === "student" ? "Parent Contact" : "Contact Number"} inputMode="numeric" maxLength={10} value={form.phone} onChange={e => setForm({ ...form, phone: onlyNumbers(e.target.value).slice(0, 10) })} required />
+        {config.apiType !== "student" && <FormInput label="Email" type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} />}
+        <FormSelect label="Course" value={form.course_id} onChange={e => setForm({ ...form, course_id: e.target.value, batch_id: "" })} options={data.courses.map(course => ({ value: course.id, label: course.course_name }))} empty="Create a course first" required={config.apiType === "student"} />
+        <FormSelect label="Batch" value={form.batch_id} onChange={e => setForm({ ...form, batch_id: e.target.value })} options={availableBatches.map(batch => ({ value: batch.id, label: batch.batch_name }))} empty={form.course_id ? "Create a batch under this course" : "Select course first"} required={config.apiType === "student"} />
+        <FormInput label="Level / Class" value={form.level_class} onChange={e => setForm({ ...form, level_class: e.target.value })} />
+        <FormInput label="Joining Date" type="date" value={form.joining_date} onChange={e => setForm({ ...form, joining_date: e.target.value })} />
+        <FormSelect label="Status" value={form.status} onChange={e => setForm({ ...form, status: e.target.value })} options={statusOptions()} />
+        <FormSelect label="Face Enrollment Status" value={form.face_enrollment_status} onChange={e => setForm({ ...form, face_enrollment_status: e.target.value })} options={[{ value: "not_started", label: "Pending" }, { value: "completed", label: "Completed" }]} />
+        <label className="grid gap-1.5 md:col-span-2"><span className="text-sm font-semibold text-slate-700">Notes</span><textarea className="min-h-24 rounded-xl border border-slate-200 px-3 py-3 outline-none focus:border-[#082248] focus:ring-4 focus:ring-slate-200" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Optional notes" /></label>
+        <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#082248] px-4 font-semibold text-white md:col-span-2"><Plus size={17} />Save {config.singular}</button>
       </form>
     </Card>
-    <Card title="Create Batch / Category">
-      <div className="grid gap-3 md:grid-cols-2">
-        <InlineCreate placeholder="Create course / class" value={newCourse} setValue={setNewCourse} onAdd={() => addUnique(newCourse, courses, setCourses, setNewCourse)} />
-        <InlineCreate placeholder="Create batch" value={newBatch} setValue={setNewBatch} onAdd={() => addUnique(newBatch, batches, setBatches, setNewBatch)} />
-      </div>
+    <Card title={`${config.singular} List`} action={<SearchBox value={query} onChange={setQuery} />}>
+      <DataTable columns={["Name", "Phone", "Code", "Course", "Batch", "Status", "Face", "Action"]} rows={rows.map(person => [
+        person.full_name,
+        person.guardian_phone || person.phone || "-",
+        person.person_code,
+        person.course_name || "-",
+        person.batch_name || "-",
+        <Badge status={titleCase(person.status)} />,
+        <Badge status={person.face_enrollment_status === "completed" ? "Completed" : "Pending"} />,
+        <button className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-500" onClick={() => remove(person.id)}><Trash2 size={16} /></button>
+      ])} empty={`No ${config.title.toLowerCase()} found.`} />
     </Card>
-    <Card title={`${type} List`} action={<ListTools q={q} setQ={setQ} filter={filter} setFilter={setFilter} />}>
-      <DataTable columns={["Name", "Phone", "Code", "Course", "Batch", "Status", "Face", "Action"]} rows={rows.map(p => [
-        p.name,
-        p.phone,
-        p.code,
-        p.category,
-        p.batch,
-        <StatusBadge status={p.status} />,
-        <StatusBadge status={p.enrolled ? "Completed" : "Pending"} />,
-        <div className="flex gap-2"><button className="rounded-lg border border-slate-200 px-3 py-2 text-sm font-semibold text-[#082248]" onClick={() => setTask({ mode: "enroll", personId: p.id, createdAt: Date.now() })}>Enroll</button><button className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-500" onClick={() => remove(p.id)}><Trash2 size={16} /></button></div>
-      ])} empty={`No ${type.toLowerCase()} records found.`} />
-    </Card>
-  </PageContainer>;
+  </Page>;
 }
 
 function FaceEnrollment({ data }) {
-  const [people, setPeople] = data.people;
-  const [, setTask] = data.task;
-  const [profile] = data.profile;
-  const { error, toast, notify, refresh } = data.backend;
+  const [courseId, setCourseId] = useState("");
+  const [batchId, setBatchId] = useState("");
+  const [students, setStudents] = useState([]);
+  const [studentId, setStudentId] = useState("");
   const [message, setMessage] = useState("");
-  const [mobileLink, setMobileLink] = useState("");
   const [busy, setBusy] = useState(false);
-  const pending = people.filter(p => !p.enrolled);
-  const selected = pending[0] || people[0];
-  const steps = ["Look straight", "Move left", "Move right", "Move closer", "Move backward", "Optional specs reference"];
-  const warnings = ["Low light detected", "Face too far", "Face too close", "Multiple faces detected", "Remove spectacles"];
-  const sendToMobile = async () => {
-    if (!selected) return;
+  const batches = data.batches.filter(batch => Number(batch.course_id) === Number(courseId));
+  useEffect(() => {
+    setBatchId("");
+    setStudents([]);
+    setStudentId("");
+  }, [courseId]);
+  useEffect(() => {
+    if (!courseId || !batchId) {
+      setStudents([]);
+      setStudentId("");
+      return;
+    }
+    getEnrollmentUsers(courseId, batchId)
+      .then(rows => {
+        const mapped = (rows || []).map(mapPerson);
+        setStudents(mapped);
+        setStudentId(mapped[0]?.id || "");
+      })
+      .catch(err => setMessage(err.message || "Unable to load enrollment users."));
+  }, [courseId, batchId]);
+  const selected = students.find(student => Number(student.id) === Number(studentId));
+  const start = async () => {
+    if (!selected) { setMessage("Select course and batch to start enrollment."); return; }
     setBusy(true);
     setMessage("");
     try {
       await startFaceEnrollment(selected.id);
-      const task = { mode: "enroll", personId: selected.id, createdAt: Date.now() };
-      setTask(task);
-      const link = buildMobileLink(task, profile.backend);
-      setMobileLink(link);
-      await navigator.clipboard?.writeText(link).catch(() => {});
-      notify(`Enrollment started for ${selected.name}.`);
+      data.notify(`Enrollment started for ${selected.full_name}.`);
+      await data.refresh();
     } catch (err) {
-      setMessage(err.message || "Unable to start face enrollment.");
+      setMessage(err.message || "Unable to start enrollment.");
     } finally {
       setBusy(false);
     }
   };
-  const complete = async () => {
-    if (!selected) return;
-    setBusy(true);
-    setMessage("");
-    try {
-      await updatePerson(selected.id, { face_enrollment_status: "completed" });
-      setPeople(people.map(p => p.id === selected.id ? { ...p, enrolled: true, faceStatus: "Completed" } : p));
-      await refresh();
-      notify(`Enrollment completed for ${selected.name}.`);
-    } catch (err) {
-      setMessage(err.message || "Unable to complete enrollment.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return <PageContainer title="Face Enrollment" subtitle="Guide users through a clear camera-based enrollment flow.">
-    {toast && <Notice tone="success">{toast}</Notice>}
-    {(error || message) && <Notice tone="error">{message || error}</Notice>}
-    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.1fr_.9fr]">
-      <CameraPanel title="Enrollment Camera" subtitle={selected ? `${selected.name} - ${selected.code}` : "No user selected"} />
-      <Card title="Current Instruction" action={<StatusBadge status={selected?.enrolled ? "Completed" : "Pending"} />}>
-        <div className="space-y-5">
-          <div className="rounded-lg bg-slate-50 p-4">
-            <p className="text-sm font-semibold text-slate-500">Selected user</p>
-            <p className="mt-1 text-xl font-bold text-[#082248]">{selected?.name || "No user available"}</p>
-            <p className="text-sm text-slate-500">{selected?.type || "-"} - {selected?.category || "-"} - {selected?.batch || "-"}</p>
-          </div>
-          <div>
-            <div className="mb-2 flex justify-between text-sm font-semibold"><span>Enrollment progress</span><span>67%</span></div>
-            <div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full w-2/3 rounded-full bg-[#082248]" /></div>
-          </div>
-          <div className="grid gap-2 sm:grid-cols-2">
-            {steps.map((step, index) => <div key={step} className="flex items-center gap-2 rounded-xl border border-slate-200 p-3 text-sm font-semibold text-slate-700"><span className={`grid h-6 w-6 place-items-center rounded-full text-xs ${index < 3 ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"}`}>{index < 3 ? <Check size={14} /> : index + 1}</span>{step}</div>)}
-          </div>
-          <div className="grid gap-2">
-            {warnings.map(warning => <div key={warning} className="flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700"><AlertTriangle size={16} />{warning}</div>)}
-          </div>
-          <div className="flex flex-col gap-2 sm:flex-row">
-            <button disabled={busy || !selected} className="h-11 flex-1 rounded-xl bg-[#082248] px-4 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" onClick={sendToMobile}>{busy ? "Working..." : "Send to Mobile"}</button>
-            <button disabled={busy || !selected} className="h-11 flex-1 rounded-xl border border-slate-200 px-4 font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-60" onClick={complete}>Mark Complete</button>
-          </div>
-          {mobileLink && <div className="rounded-lg border border-cyan-100 bg-cyan-50 p-3 text-sm text-cyan-900">
-            <p className="font-bold">Open this on your phone:</p>
-            <a className="break-all underline" href={mobileLink} target="_blank">{mobileLink}</a>
-            <button className="mt-2 rounded-lg bg-[#082248] px-3 py-2 text-xs font-bold text-white" onClick={() => navigator.clipboard?.writeText(mobileLink)}>Copy phone link</button>
-            <p className="mt-2 text-xs">Do not click this on laptop. Type/paste it in your phone browser on the same Wi-Fi.</p>
-          </div>}
+  return <Page title="Face Enrollment" subtitle="Select Course, Batch, Student, then start enrollment.">
+    <Alerts data={data} message={message} />
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[.9fr_1.1fr]">
+      <Card title="Enrollment Selection">
+        <div className="grid gap-4">
+          <FormSelect label="Course" value={courseId} onChange={e => setCourseId(e.target.value)} options={data.courses.map(course => ({ value: course.id, label: course.course_name }))} empty="Create a course first" />
+          <FormSelect label="Batch" value={batchId} onChange={e => setBatchId(e.target.value)} options={batches.map(batch => ({ value: batch.id, label: batch.batch_name }))} empty={courseId ? "Create a batch under this course" : "Select course first"} />
+          <FormSelect label="Student" value={studentId} onChange={e => setStudentId(e.target.value)} options={students.map(student => ({ value: student.id, label: `${student.full_name} - ${student.person_code}` }))} empty={courseId && batchId ? "No students found in this batch" : "Select course and batch to start enrollment"} />
+          <button disabled={busy || !selected} className="h-11 rounded-xl bg-[#082248] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" onClick={start}>{busy ? "Starting..." : "Start Enrollment"}</button>
         </div>
+      </Card>
+      <Card title="Selected Student" action={<Badge status={selected?.face_enrollment_status === "completed" ? "Completed" : "Pending"} />}>
+        {selected ? <div className="grid gap-3">
+          <Info label="Name" value={selected.full_name} />
+          <Info label="Code" value={selected.person_code} />
+          <Info label="Course" value={selected.course_name} />
+          <Info label="Batch" value={selected.batch_name} />
+        </div> : <Empty title="Select course and batch to start enrollment" message="Only students assigned to the selected batch will appear here." />}
       </Card>
     </div>
     <Card title="Enrollment Queue">
-      <DataTable columns={["User", "Type", "Course", "Batch", "Status"]} rows={pending.map(p => [p.name, p.type, p.category, p.batch, <StatusBadge status="Pending" />])} empty="All users are enrolled." />
+      <DataTable columns={["Student", "Code", "Course", "Batch", "Status"]} rows={students.map(student => [student.full_name, student.person_code, student.course_name, student.batch_name, <Badge status={student.face_enrollment_status === "completed" ? "Completed" : "Pending"} />])} empty={courseId && batchId ? "No students found in this batch" : "Select course and batch to start enrollment"} />
     </Card>
-  </PageContainer>;
+  </Page>;
 }
 
 function AttendanceScanner({ data }) {
-  const [[people], [records, setRecords], [sessions, setSessions]] = [data.people, data.records, data.sessions];
-  const { error, toast, notify, refresh } = data.backend;
-  const [running, setRunning] = useState(false);
-  const [recognized, setRecognized] = useState(null);
+  const [courseId, setCourseId] = useState("");
+  const [batchId, setBatchId] = useState("");
   const [activeSession, setActiveSession] = useState(null);
+  const [recognized, setRecognized] = useState(null);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  const startStop = async () => {
-    if (running) {
-      setRunning(false);
-      setActiveSession(null);
-      setSessions(sessions.map((s, index) => index === 0 ? { ...s, state: "Idle" } : s));
-      return;
-    }
-    const timing = sessions[0];
+  const batches = data.batches.filter(batch => Number(batch.course_id) === Number(courseId));
+  const students = data.people.filter(person => person.person_type === "student" && Number(person.course_id) === Number(courseId) && Number(person.batch_id) === Number(batchId));
+  useEffect(() => { setBatchId(""); setActiveSession(null); setRecognized(null); }, [courseId]);
+  const start = async () => {
+    if (!courseId || !batchId) { setMessage("Select course and batch to start attendance session."); return; }
+    const course = data.courses.find(item => Number(item.id) === Number(courseId));
+    const batch = data.batches.find(item => Number(item.id) === Number(batchId));
     setBusy(true);
     setMessage("");
     try {
       const session = await startAttendanceSession({
-        session_name: timing?.name || "Live Attendance",
+        session_name: `${course?.course_name || "Course"} - ${batch?.batch_name || "Batch"}`,
         session_type: "regular",
-        category_program: timing?.category || null,
-        batch_name: timing?.batch || null,
-        timing_id: timing?.id || null,
-        start_time: timing?.start || null
+        course_id: Number(courseId),
+        batch_id: Number(batchId),
+        timing_id: batch?.timing_id || null,
+        session_date: new Date().toISOString().slice(0, 10),
+        start_time: new Date().toTimeString().slice(0, 8)
       });
       setActiveSession(session);
-      setRunning(true);
-      setSessions(sessions.map((s, index) => index === 0 ? { ...s, state: "Running", startedAt: Date.now() } : s));
-      notify("Attendance session started.");
+      data.notify("Attendance session started.");
     } catch (err) {
       setMessage(err.message || "Unable to start attendance session.");
     } finally {
@@ -509,120 +539,114 @@ function AttendanceScanner({ data }) {
     }
   };
   const scan = async () => {
-    const person = people.find(p => p.enrolled) || people[0];
-    if (!person) { setMessage("No person records are available to mark."); return; }
+    if (!activeSession) { setMessage("Start a course and batch session first."); return; }
+    const person = students.find(item => item.face_enrollment_status === "completed") || students[0];
+    if (!person) { setMessage("No students found in this batch."); return; }
     setBusy(true);
     setMessage("");
     try {
       const record = await markAttendance({
-        session_id: activeSession?.id || null,
+        session_id: activeSession.id,
         person_id: person.id,
-        person_code: person.code,
+        person_code: person.person_code,
+        course_id: Number(courseId),
+        batch_id: Number(batchId),
         confidence_score: 0.94,
         recognition_method: "face_ai",
         device_name: "frontend-scanner"
       });
-      const next = mapApiAttendance(record);
-      setRecognized(next);
-      setRecords([next, ...records]);
-      notify(`${person.name} marked ${next.status}.`);
-      await refresh();
+      const mapped = mapAttendance(record);
+      setRecognized(mapped);
+      data.setRecords([mapped, ...data.records]);
+      data.notify(`${person.full_name} marked ${mapped.status}.`);
     } catch (err) {
       setMessage(err.message || "Unable to mark attendance.");
     } finally {
       setBusy(false);
     }
   };
-  return <PageContainer title="Attendance Scanner" subtitle="Start a camera session, recognize users, and review recent scans.">
-    {toast && <Notice tone="success">{toast}</Notice>}
-    {(error || message) && <Notice tone="error">{message || error}</Notice>}
+  return <Page title="Attendance Scanner" subtitle="Select Course, Batch, start a session, then mark only that batch.">
+    <Alerts data={data} message={message} />
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.1fr_.9fr]">
-      <CameraPanel title="Scanner Camera" subtitle={running ? "Session running" : "Session stopped"} />
+      <Card title="Scanner Camera" action={<Badge status={activeSession ? "Active" : "Pending"} />}>
+        <div className="grid aspect-video place-items-center rounded-lg border border-slate-200 bg-slate-950 text-center text-white">
+          <div><Camera className="mx-auto mb-3 text-cyan-300" size={42} /><p className="font-bold">{activeSession ? "Session running" : "Session stopped"}</p></div>
+        </div>
+      </Card>
       <Card title="Session Control">
-        <div className="space-y-4">
-          <button disabled={busy} className={`inline-flex h-12 w-full items-center justify-center gap-2 rounded-xl px-4 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60 ${running ? "bg-red-600" : "bg-[#082248]"}`} onClick={startStop}>{running ? <Square size={17} /> : <Camera size={17} />}{running ? "Stop Session" : busy ? "Starting..." : "Start Session"}</button>
-          <button disabled={busy} className="h-11 w-full rounded-xl border border-slate-200 font-semibold text-[#082248] disabled:cursor-not-allowed disabled:opacity-60" onClick={scan}>{busy ? "Processing..." : "Simulate Scan"}</button>
+        <div className="grid gap-4">
+          <FormSelect label="Course" value={courseId} onChange={e => setCourseId(e.target.value)} options={data.courses.map(course => ({ value: course.id, label: course.course_name }))} empty="Create a course first" />
+          <FormSelect label="Batch" value={batchId} onChange={e => setBatchId(e.target.value)} options={batches.map(batch => ({ value: batch.id, label: batch.batch_name }))} empty={courseId ? "Create a batch under this course" : "Select course first"} />
+          <button disabled={busy || !courseId || !batchId} className="h-11 rounded-xl bg-[#082248] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" onClick={start}>{busy ? "Starting..." : "Start Session"}</button>
+          <button disabled={busy || !activeSession} className="h-11 rounded-xl border border-slate-200 font-semibold text-[#082248] disabled:cursor-not-allowed disabled:opacity-60" onClick={scan}>{busy ? "Processing..." : "Simulate Scan"}</button>
+          {activeSession && <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
+            <Info label="Course" value={courseName(data.courses, activeSession.course_id)} />
+            <Info label="Batch" value={batchName(data.batches, activeSession.batch_id)} />
+            <Info label="Session Date" value={activeSession.session_date} />
+            <Info label="Start Time" value={activeSession.start_time || "-"} />
+          </div>}
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-500">Recognized person</p>
-            <p className="mt-2 text-2xl font-bold text-[#082248]">{recognized?.name || "Waiting for scan"}</p>
-            <p className="text-sm text-slate-500">Confidence: {recognized?.confidence || 0}%</p>
-            <div className="mt-3"><StatusBadge status={recognized?.status || "Unknown"} /></div>
+            <p className="mt-2 text-2xl font-bold text-[#082248]">{recognized?.person_name || "Waiting for scan"}</p>
+            <div className="mt-3"><Badge status={recognized?.status || "Unknown"} /></div>
           </div>
         </div>
       </Card>
     </div>
-    <Card title="Recent Scans">
-      <DataTable columns={["Name", "Code", "Type", "Confidence", "Status", "Time"]} rows={records.slice(0, 8).map(r => [r.name, r.code, r.type || "-", `${r.confidence || 0}%`, <StatusBadge status={r.status} />, new Date(r.time).toLocaleTimeString()])} empty="No recent scans." />
+    <Card title="Students in Selected Batch">
+      <DataTable columns={["Name", "Code", "Course", "Batch", "Face"]} rows={students.map(student => [student.full_name, student.person_code, student.course_name, student.batch_name, <Badge status={student.face_enrollment_status === "completed" ? "Completed" : "Pending"} />])} empty={courseId && batchId ? "No students found in this batch" : "Select course and batch to start attendance session"} />
     </Card>
-  </PageContainer>;
+  </Page>;
 }
 
 function Reports({ data }) {
-  const [[people], [records], [profile]] = [data.people, data.records, data.profile];
-  const { loading, error } = data.backend;
-  const status = useBackendStatus(profile.backend);
-  const today = records.filter(r => new Date(r.time).toDateString() === new Date().toDateString());
-  return <PageContainer title="Reports" subtitle="Clean attendance summaries and export placeholders.">
-    {error && <Notice tone="error">{error}</Notice>}
-    {loading && <Notice>Loading report data from FastAPI...</Notice>}
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
-      <StatCard icon={Activity} title="Today Summary" value={today.length} description="Scans recorded" />
-      <StatCard icon={GraduationCap} title="Students" value={summaryFor(people, records, "Student")} description="Student attendance" />
-      <StatCard icon={UserCheck} title="Staff" value={summaryFor(people, records, "Staff")} description="Staff attendance" />
-      <StatCard icon={Users} title="Members" value={summaryFor(people, records, "Member")} description="Member attendance" />
-      <StatCard icon={FileSpreadsheet} title="Sheet Sync" value={status} description={profile.sheet || "Not configured"} />
-    </div>
-    <Card title="Attendance Records" action={<button className="inline-flex items-center gap-2 rounded-xl bg-[#082248] px-4 py-2 text-sm font-semibold text-white"><Download size={16} />Export</button>}>
-      <DataTable columns={["Name", "Code", "Type", "Course", "Status", "Time"]} rows={records.map(r => [r.name, r.code, r.type || "-", r.category, <StatusBadge status={r.status} />, new Date(r.time).toLocaleString()])} empty="No report data available." />
+  const [courseId, setCourseId] = useState("");
+  const [batchId, setBatchId] = useState("");
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [rows, setRows] = useState(data.records);
+  const [message, setMessage] = useState("");
+  const batches = data.batches.filter(batch => !courseId || Number(batch.course_id) === Number(courseId));
+  useEffect(() => { if (batchId && !batches.some(batch => Number(batch.id) === Number(batchId))) setBatchId(""); }, [batchId, batches]);
+  const load = async () => {
+    try {
+      const result = await getAttendanceByDate(date, { course_id: courseId, batch_id: batchId });
+      setRows((result || []).map(mapAttendance));
+    } catch (err) {
+      setMessage(err.message || "Unable to load report data.");
+    }
+  };
+  useEffect(() => { load(); }, []);
+  return <Page title="Reports" subtitle="Filter attendance logs by Course, Batch, and Date.">
+    <Alerts data={data} message={message} />
+    <Card title="Report Filters">
+      <div className="grid gap-4 md:grid-cols-[1fr_1fr_180px_auto]">
+        <FormSelect label="Course" value={courseId} onChange={e => { setCourseId(e.target.value); setBatchId(""); }} options={[{ value: "", label: "All Courses" }, ...data.courses.map(course => ({ value: course.id, label: course.course_name }))]} />
+        <FormSelect label="Batch" value={batchId} onChange={e => setBatchId(e.target.value)} options={[{ value: "", label: "All Batches" }, ...batches.map(batch => ({ value: batch.id, label: batch.batch_name }))]} />
+        <FormInput label="Date" type="date" value={date} onChange={e => setDate(e.target.value)} />
+        <div className="flex items-end"><button className="h-11 rounded-xl bg-[#082248] px-5 font-semibold text-white" onClick={load}>Apply</button></div>
+      </div>
     </Card>
-  </PageContainer>;
+    <Card title="Attendance Records">
+      <DataTable columns={["Name", "Code", "Course", "Batch", "Status", "Time"]} rows={rows.map(record => [record.person_name, record.person_code, record.course_name || courseName(data.courses, record.course_id), record.batch_name || batchName(data.batches, record.batch_id), <Badge status={record.status} />, formatTime(record.marked_time)])} empty="No report data available." />
+    </Card>
+  </Page>;
 }
 
 function SettingsPage({ data }) {
-  const [profile, setProfile] = data.profile;
-  const [courses, setCourses] = data.courses;
-  const [batches, setBatches] = data.batches;
-  const status = useBackendStatus(profile.backend);
-  const [message, setMessage] = useState("");
-  const [newCourse, setNewCourse] = useState("");
-  const [newBatch, setNewBatch] = useState("");
-  const setLogo = event => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setProfile({ ...profile, logo: reader.result });
-    reader.readAsDataURL(file);
-  };
-  return <PageContainer title="Settings" subtitle="Enterprise profile, logo, backend URL, sheet sync, batches, and categories.">
-    <Card title="Enterprise Settings" action={<StatusBadge status={status === "Online" ? "Completed" : "Pending"} />}>
-      <form className="grid gap-4 md:grid-cols-2" onSubmit={e => { e.preventDefault(); setMessage("Settings saved locally."); }}>
-        <div className="md:col-span-2 flex flex-col gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-          <Brand profile={profile} />
-          <label className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 text-sm font-semibold text-[#082248]"><Upload size={16} />Upload logo<input className="hidden" type="file" accept="image/*" onChange={setLogo} /></label>
-        </div>
-        <FormInput label="Enterprise name" value={profile.enterprise || ""} onChange={e => setProfile({ ...profile, enterprise: e.target.value })} />
-        <FormInput label="Admin / owner" value={profile.owner || ""} onChange={e => setProfile({ ...profile, owner: e.target.value })} />
-        <FormInput label="Phone" inputMode="numeric" maxLength={10} value={profile.phone || ""} onChange={e => setProfile({ ...profile, phone: onlyNumbers(e.target.value).slice(0, 10) })} />
-        <FormInput label="Address" value={profile.address || ""} onChange={e => setProfile({ ...profile, address: e.target.value })} />
-        <FormInput label="Backend URL" value={profile.backend || ""} onChange={e => setProfile({ ...profile, backend: e.target.value })} />
-        <FormInput label="Google Sheet ID" value={profile.sheet || ""} onChange={e => setProfile({ ...profile, sheet: e.target.value })} />
-        <div className="flex flex-col gap-2 md:col-span-2 sm:flex-row">
-          <button className="h-11 flex-1 rounded-xl bg-[#082248] font-semibold text-white">Save Settings</button>
-          <button type="button" className="h-11 rounded-xl border border-slate-200 px-4 font-semibold text-slate-700" onClick={() => setMessage("")}>Cancel</button>
-        </div>
-        {message && <p className="md:col-span-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm font-medium text-emerald-700">{message}</p>}
-      </form>
-    </Card>
-    <Card title="Create Batch / Category">
+  return <Page title="Settings" subtitle="Backend connection and system status.">
+    <Alerts data={data} />
+    <Card title="System">
       <div className="grid gap-3 md:grid-cols-2">
-        <InlineCreate placeholder="Create course / class" value={newCourse} setValue={setNewCourse} onAdd={() => addUnique(newCourse, courses, setCourses, setNewCourse)} />
-        <InlineCreate placeholder="Create batch" value={newBatch} setValue={setNewBatch} onAdd={() => addUnique(newBatch, batches, setBatches, setNewBatch)} />
+        <Info label="Backend URL" value={API_BASE_URL} />
+        <Info label="Course Source" value="FastAPI only" />
+        <Info label="Supabase Client" value="Backend only" />
+        <Info label="User Flow" value="Course -> Batch -> Student" />
       </div>
     </Card>
-  </PageContainer>;
+  </Page>;
 }
 
-function PageContainer({ title, subtitle, children }) {
+function Page({ title, subtitle, children }) {
   return <div className="space-y-5">
     <div>
       <h2 className="text-2xl font-bold tracking-tight text-[#082248] sm:text-3xl">{title}</h2>
@@ -642,60 +666,31 @@ function Card({ title, action, children }) {
   </section>;
 }
 
-function Notice({ tone = "info", children }) {
-  const styles = {
-    info: "border-cyan-100 bg-cyan-50 text-cyan-800",
-    success: "border-emerald-100 bg-emerald-50 text-emerald-800",
-    error: "border-red-100 bg-red-50 text-red-800"
-  };
-  return <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${styles[tone]}`}>{children}</div>;
+function FormInput({ label, className = "", ...props }) {
+  return <label className={`grid gap-1.5 ${className}`}>
+    <span className="text-sm font-semibold text-slate-700">{label}</span>
+    <input className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#082248] focus:ring-4 focus:ring-slate-200" {...props} />
+  </label>;
 }
 
-function StatCard({ icon: Icon, title, value, description, accent = "navy" }) {
-  const styles = {
-    navy: "bg-[#082248] text-white",
-    cyan: "bg-cyan-50 text-cyan-700",
-    gold: "bg-amber-50 text-amber-700",
-    red: "bg-red-50 text-red-700"
-  };
-  return <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-    <div className="flex items-start justify-between gap-3">
-      <div>
-        <p className="text-sm font-semibold text-slate-500">{title}</p>
-        <p className="mt-2 text-3xl font-bold text-[#082248]">{value}</p>
-      </div>
-      <div className={`grid h-11 w-11 place-items-center rounded-lg ${styles[accent]}`}><Icon size={21} /></div>
-    </div>
-    <p className="mt-4 text-sm text-slate-500">{description}</p>
-  </article>;
-}
-
-function MiniMetric({ label, value, tone = "slate" }) {
-  const tones = {
-    slate: "bg-slate-50 text-slate-700",
-    red: "bg-red-50 text-red-700",
-    gold: "bg-amber-50 text-amber-700",
-    cyan: "bg-cyan-50 text-cyan-700"
-  };
-  return <div className={`rounded-lg px-3 py-3 ${tones[tone]}`}>
-    <p className="text-xs font-bold uppercase tracking-wide opacity-75">{label}</p>
-    <p className="mt-1 truncate text-xl font-black">{value}</p>
-  </div>;
-}
-
-function AudienceTile({ icon: Icon, label, value }) {
-  return <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
-    <Icon className="text-[#082248]" size={22} />
-    <p className="mt-5 text-3xl font-black text-[#082248]">{value}</p>
-    <p className="mt-1 text-sm font-semibold text-slate-500">{label}</p>
-  </div>;
+function FormSelect({ label, options = [], empty = "No options", ...props }) {
+  const hasEmptyValueOption = options.some(option => (typeof option === "string" ? option : option.value) === "");
+  const needsPlaceholder = options.length > 0 && !hasEmptyValueOption && (props.value ?? "") === "";
+  return <label className="grid gap-1.5">
+    <span className="text-sm font-semibold text-slate-700">{label}</span>
+    <select className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-slate-900 outline-none transition focus:border-[#082248] focus:ring-4 focus:ring-slate-200" {...props}>
+      {!options.length && <option value="">{empty}</option>}
+      {needsPlaceholder && <option value="" disabled hidden>{`Select ${label}`}</option>}
+      {options.map(option => typeof option === "string" ? <option key={option} value={option}>{option}</option> : <option key={`${option.value}-${option.label}`} value={option.value}>{option.label}</option>)}
+    </select>
+  </label>;
 }
 
 function DataTable({ columns, rows, empty }) {
   return <div className="overflow-hidden rounded-xl border border-slate-200">
     <div className="hidden overflow-x-auto md:block">
       <table className="min-w-full divide-y divide-slate-200 text-sm">
-        <thead className="bg-slate-50">{columns.map(column => <th key={column} className="px-4 py-3 text-left font-bold text-slate-500">{column}</th>)}</thead>
+        <thead className="bg-slate-50"><tr>{columns.map(column => <th key={column} className="px-4 py-3 text-left font-bold text-slate-500">{column}</th>)}</tr></thead>
         <tbody className="divide-y divide-slate-100 bg-white">{rows.map((row, index) => <tr key={index}>{row.map((cell, cellIndex) => <td key={cellIndex} className="px-4 py-3 align-middle text-slate-700">{cell}</td>)}</tr>)}</tbody>
       </table>
     </div>
@@ -711,48 +706,26 @@ function DataTable({ columns, rows, empty }) {
   </div>;
 }
 
-function FormInput({ label, className = "", ...props }) {
-  return <label className={`grid gap-1.5 ${className}`}>
-    <span className="text-sm font-semibold text-slate-700">{label}</span>
-    <input className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#082248] focus:ring-4 focus:ring-slate-200" {...props} />
-  </label>;
+function Alerts({ data, message }) {
+  return <>
+    {data.toast && <Notice tone="success">{data.toast}</Notice>}
+    {data.error && <Notice tone="error">{data.error}</Notice>}
+    {message && <Notice tone="error">{message}</Notice>}
+    {data.loading && <Notice>Loading live backend data...</Notice>}
+  </>;
 }
 
-function FormSelect({ label, options, ...props }) {
-  return <label className="grid gap-1.5">
-    <span className="text-sm font-semibold text-slate-700">{label}</span>
-    <select className="h-11 rounded-xl border border-slate-200 bg-white px-3 text-slate-900 outline-none transition focus:border-[#082248] focus:ring-4 focus:ring-slate-200" {...props}>{options.map(option => <option key={option}>{option}</option>)}</select>
-  </label>;
+function Notice({ tone = "info", children }) {
+  const styles = {
+    info: "border-cyan-100 bg-cyan-50 text-cyan-800",
+    success: "border-emerald-100 bg-emerald-50 text-emerald-800",
+    error: "border-red-100 bg-red-50 text-red-800"
+  };
+  return <div className={`rounded-xl border px-4 py-3 text-sm font-semibold ${styles[tone]}`}>{children}</div>;
 }
 
-function FieldRenderer({ fieldKey, label, kind, form, setForm, courses, batches }) {
-  const setValue = value => setForm({ ...form, [fieldKey]: value });
-  if (kind === "select:courses") return <FormSelect label={label} value={form[fieldKey] || ""} onChange={e => setValue(e.target.value)} options={courses} />;
-  if (kind === "select:batches") return <FormSelect label={label} value={form[fieldKey] || ""} onChange={e => setValue(e.target.value)} options={batches} />;
-  if (kind === "select:status") return <FormSelect label={label} value={form[fieldKey] || "Active"} onChange={e => setValue(e.target.value)} options={["Active", "Pending", "Inactive"]} />;
-  if (kind === "select:face") return <FormSelect label={label} value={form[fieldKey] || "Pending"} onChange={e => setValue(e.target.value)} options={["Pending", "Completed"]} />;
-  if (kind === "textarea") return <label className="grid gap-1.5 md:col-span-2"><span className="text-sm font-semibold text-slate-700">{label}</span><textarea className="min-h-24 rounded-xl border border-slate-200 bg-white px-3 py-3 text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-[#082248] focus:ring-4 focus:ring-slate-200" value={form[fieldKey] || ""} onChange={e => setValue(e.target.value)} placeholder="Optional notes" /></label>;
-  const isPhone = fieldKey === "phone";
-  return <FormInput label={label} type={kind === "date" ? "date" : kind === "email" ? "email" : "text"} placeholder={label} inputMode={isPhone ? "numeric" : undefined} maxLength={isPhone ? 10 : undefined} value={form[fieldKey] || ""} onChange={e => setValue(isPhone ? onlyNumbers(e.target.value).slice(0, 10) : e.target.value)} required={["code", "name", "phone"].includes(fieldKey)} />;
-}
-
-function CameraPanel({ title, subtitle }) {
-  return <Card title={title} action={<StatusBadge status="Active" />}>
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-slate-950">
-      <div className="aspect-[4/3] w-full sm:aspect-video">
-        <div className="grid h-full place-items-center bg-slate-900 text-center text-white">
-          <div>
-            <Camera className="mx-auto mb-3 text-cyan-300" size={42} />
-            <p className="text-lg font-bold">{subtitle}</p>
-            <p className="text-sm text-slate-300">Camera preview area</p>
-          </div>
-        </div>
-      </div>
-    </div>
-  </Card>;
-}
-
-function StatusBadge({ status }) {
+function Badge({ status }) {
+  const key = titleCase(status || "Unknown");
   const classes = {
     Active: "bg-emerald-50 text-emerald-700",
     Completed: "bg-emerald-50 text-emerald-700",
@@ -761,297 +734,157 @@ function StatusBadge({ status }) {
     Late: "bg-amber-50 text-amber-700",
     Absent: "bg-red-50 text-red-700",
     Unknown: "bg-slate-100 text-slate-600",
+    Inactive: "bg-slate-100 text-slate-600",
     "Already Marked": "bg-cyan-50 text-cyan-700"
   };
-  return <span className={`inline-flex min-h-7 items-center rounded-full px-3 text-xs font-bold ${classes[status] || "bg-slate-100 text-slate-600"}`}>{status}</span>;
+  return <span className={`inline-flex min-h-7 items-center rounded-full px-3 text-xs font-bold ${classes[key] || "bg-slate-100 text-slate-600"}`}>{key}</span>;
 }
 
-function ListTools({ q, setQ, filter, setFilter }) {
-  return <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-[220px_140px]">
-    <label className="flex h-10 items-center gap-2 rounded-xl border border-slate-200 px-3"><Search size={16} className="text-slate-400" /><input className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Search" value={q} onChange={e => setQ(e.target.value)} /></label>
-    <select className="h-10 rounded-xl border border-slate-200 px-3 text-sm outline-none" value={filter} onChange={e => setFilter(e.target.value)}><option>All</option><option>Active</option><option>Pending</option></select>
+function RowActions({ onEdit, onDelete }) {
+  return <div className="flex gap-2">
+    <button className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-[#082248]" onClick={onEdit}><Edit3 size={16} /></button>
+    <button className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-red-500" onClick={onDelete}><Trash2 size={16} /></button>
   </div>;
 }
 
-function InlineCreate({ placeholder, value, setValue, onAdd }) {
-  return <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-    <input className="h-11 rounded-xl border border-slate-200 px-3 outline-none focus:border-[#082248] focus:ring-4 focus:ring-slate-200" placeholder={placeholder} value={value} onChange={e => setValue(e.target.value)} />
-    <button className="inline-flex h-11 items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 font-semibold text-[#082248] hover:bg-slate-50" type="button" onClick={onAdd}><Plus size={16} />Add</button>
+function SearchBox({ value, onChange }) {
+  return <label className="flex h-10 w-full items-center gap-2 rounded-xl border border-slate-200 px-3 sm:w-64">
+    <Search size={16} className="text-slate-400" /><input className="min-w-0 flex-1 bg-transparent text-sm outline-none" placeholder="Search" value={value} onChange={e => onChange(e.target.value)} />
+  </label>;
+}
+
+function Empty({ title, message }) {
+  return <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-6 text-center">
+    <p className="font-semibold text-slate-800">{title}</p>
+    <p className="mt-1 text-sm text-slate-500">{message}</p>
   </div>;
 }
 
-function Brand({ profile }) {
-  const enterprise = profile?.enterprise || "Vernex Gen Technologies";
-  const words = enterprise.split(/\s+/);
+function Info({ label, value }) {
+  return <div className="rounded-lg bg-slate-50 px-3 py-2">
+    <p className="text-xs font-bold uppercase text-slate-400">{label}</p>
+    <p className="mt-1 font-semibold text-[#082248]">{value || "-"}</p>
+  </div>;
+}
+
+function Stat({ icon: Icon, label, value }) {
+  return <article className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <div className="flex items-start justify-between gap-3">
+      <div><p className="text-sm font-semibold text-slate-500">{label}</p><p className="mt-2 text-3xl font-bold text-[#082248]">{value}</p></div>
+      <div className="grid h-11 w-11 place-items-center rounded-lg bg-[#082248] text-white"><Icon size={21} /></div>
+    </div>
+  </article>;
+}
+
+function CourseSummary({ course, batches, people }) {
+  const assigned = people.filter(person => Number(person.course_id) === Number(course.id)).length;
+  return <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+    <div className="flex items-start justify-between gap-3">
+      <div>
+        <p className="font-semibold text-slate-900">{course.course_name}</p>
+        <p className="text-sm text-slate-500">{assigned} users assigned</p>
+      </div>
+      <Badge status={titleCase(course.status)} />
+    </div>
+    <div className="mt-3 flex flex-wrap gap-2">
+      {batches.map(batch => <span key={batch.id} className="rounded-lg border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">{batch.batch_name}</span>)}
+      {!batches.length && <span className="text-sm text-slate-500">Create a batch under this course</span>}
+    </div>
+  </div>;
+}
+
+function Brand() {
   return <div className="flex min-w-0 items-center gap-3">
-    {profile?.logo ? <img className="h-12 w-12 rounded-xl border border-slate-200 object-cover" src={profile.logo} alt="" /> : <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-[#082248] text-xl font-black text-[#c89736]">{enterprise[0] || "V"}</div>}
+    <div className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-[#082248] text-xl font-black text-[#c89736]">V</div>
     <div className="min-w-0">
-      <p className="truncate text-xl font-black uppercase tracking-[0.16em] text-[#082248]">{words[0] || "Vernex"}</p>
-      <p className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-[#c89736]">{words.slice(1).join(" ") || "Gen Technologies"}</p>
+      <p className="truncate text-xl font-black uppercase tracking-[0.16em] text-[#082248]">VERNEX</p>
+      <p className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-[#c89736]">GEN TECHNOLOGIES</p>
     </div>
   </div>;
 }
 
-function MobileDashboard({ data }) {
-  const [[people, setPeople], [sessions], [records, setRecords], [profile], [task, setTask]] = [data.people, data.sessions, data.records, data.profile, data.task];
-  const camera = useCamera();
-  const video = camera.ref;
-  const now = useClock();
-  const [currentStep, setCurrentStep] = useState("front");
-  const [progress, setProgress] = useState(0);
-  const [warning, setWarning] = useState("");
-  const [done, setDone] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [started, setStarted] = useState(false);
-  const [stepStartedAt, setStepStartedAt] = useState(Date.now());
+function ClockBox() {
+  const [now, setNow] = useState(new Date());
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const mode = params.get("mode");
-    if (!mode) return;
-    setTask({
-      mode,
-      personId: Number(params.get("personId")) || undefined,
-      sessionId: Number(params.get("sessionId")) || undefined,
-      category: params.get("category") || undefined,
-      durationSeconds: Number(params.get("durationSeconds")) || undefined,
-      createdAt: Number(params.get("createdAt")) || Date.now()
-    });
-  }, [setTask]);
-  const person = people.find(p => p.id === task?.personId);
-  const session = sessions.find(s => s.id === task?.sessionId);
-  const mark = () => {
-    const p = people.find(x => x.category === task?.category) || people[0];
-    setRecords([{ id: crypto.randomUUID(), name: p?.name || "Unknown", code: p?.code || "-", type: p?.type || "-", category: task?.category || "-", status: p ? "Present" : "Unknown", confidence: p ? 94 : 0, time: new Date().toISOString() }, ...records]);
-  };
-  const captureStep = async () => {
-    if (!person || !video.current || busy || done) return;
-    setBusy(true);
-    setWarning("");
-    console.log("selected person_id", person.id);
-    console.log("current_step", currentStep);
-    try {
-      const blob = await captureVideoFrame(video.current);
-      const form = new FormData();
-      form.append("person_id", person.id);
-      form.append("current_step", currentStep);
-      form.append("has_specs", currentStep === "with_specs" ? "true" : "false");
-      form.append("image", blob, `${currentStep}.jpg`);
-      console.log("request status", "uploading");
-      const response = await sendEnrollmentFrame(form);
-      console.log("API response", response);
-      setProgress(response.progress_percentage || 0);
-      if (response.warning) setWarning(response.warning);
-      if (response.completed) {
-        signalCaptured();
-        setDone(true);
-        setStarted(false);
-        setPeople(people.map(p => p.id === person.id ? { ...p, enrolled: true, faceStatus: "Completed" } : p));
-      } else {
-        signalCaptured();
-        setCurrentStep(response.next_step || currentStep);
-        setStepStartedAt(Date.now());
-      }
-    } catch (err) {
-      console.log("warning/error", err.message);
-      setWarning(err.message || "Capture failed.");
-    } finally {
-      setBusy(false);
-    }
-  };
-  useEffect(() => {
-    if (!started || done || task?.mode !== "enroll") return;
-    const id = setInterval(() => {
-      if (Date.now() - stepStartedAt > 20000) setWarning("Adjust your face and try again");
-      captureStep();
-    }, 1000);
+    const id = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(id);
-  }, [started, done, task?.mode, currentStep, busy, stepStartedAt]);
-  const remaining = task?.mode === "attendance" ? Math.max(0, Number(task.durationSeconds || 0) - Math.floor((now - task.createdAt) / 1000)) : 0;
-  return <main className="mx-auto min-h-screen max-w-xl bg-white p-5">
-    <Brand profile={profile} />
-    <h1 className="mt-6 text-2xl font-bold text-[#082248]">{profile.enterprise}</h1>
-    {!task && <MobileCamera title="Waiting for admin" subtitle="Enrollment or attendance will start here automatically." />}
-    {task?.mode === "enroll" && <MobileCamera video={video} cameraError={camera.error} title={done ? "Enrollment completed" : stepInstruction(currentStep)} subtitle={person ? `${person.name} - ${person.code} - ${progress}%` : "Waiting for admin"} action={done ? "Completed" : started ? busy ? "Checking..." : "Auto capturing..." : "Start Enrollment"} onClick={() => { setStarted(true); setStepStartedAt(Date.now()); }} done={done} warning={warning} />}
-    {task?.mode === "attendance" && <MobileCamera video={video} title={session?.name || "Attendance Session"} subtitle={`Timer: ${formatDuration(remaining)}`} action="Mark Attendance" onClick={mark} />}
-    <div className="mt-5 flex items-center justify-center gap-2 text-sm text-slate-500"><Wifi size={15} /> Same Wi-Fi local device</div>
-  </main>;
+  }, []);
+  return <div className="shrink-0 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-right">
+    <p className="text-sm font-bold text-[#082248]">{now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</p>
+    <p className="text-xs font-semibold text-slate-500">{now.toLocaleDateString([], { day: "2-digit", month: "short", year: "numeric" })}</p>
+  </div>;
 }
 
-function MobileCamera({ video, cameraError, title, subtitle, action, onClick, done, warning }) {
-  return <section className="mt-5 rounded-lg border border-slate-200 bg-slate-50 p-4">
-    <h2 className="text-xl font-bold text-[#082248]">{title}</h2>
-    <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
-    <div className="relative mt-4 aspect-[3/4] overflow-hidden rounded-lg bg-slate-950">
-      {video ? <video className="h-full w-full scale-x-[-1] object-cover" ref={video} autoPlay playsInline muted /> : <div className="grid h-full place-items-center text-white"><Camera size={34} /></div>}
-      <div className="pointer-events-none absolute inset-[16%] rounded-full border-2 border-white/90" />
-    </div>
-    {cameraError && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700">{cameraError}</p>}
-    {warning && <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-700">{warning}</p>}
-    {action && <button disabled={done || action === "Checking..." || action === "Auto capturing..."} className="mt-4 inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-[#082248] font-semibold text-white disabled:opacity-60" onClick={onClick}>{done ? <Check size={17} /> : <Camera size={17} />}{done ? "Completed" : action}</button>}
-  </section>;
-}
-
-function countType(people, type) { return people.filter(p => p.type === type).length; }
-function summaryFor(people, records, type) { return records.filter(r => r.type === type && r.status === "Present").length || `${countType(people, type)} users`; }
-function addUnique(value, values, setValues, reset) { const v = value.trim(); if (!v || values.some(x => x.toLowerCase() === v.toLowerCase())) return; setValues([...values, v]); reset(""); }
-function onlyNumbers(value) { return value.replace(/\D/g, ""); }
-function formatDuration(seconds) { const s = Math.max(0, Number(seconds) || 0); return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, "0")}s`; }
-function stepInstruction(step) {
-  return ({ front: "Look straight", left: "Move face slightly left", right: "Move face slightly right", close: "Move face closer", far: "Move face backward", with_specs: "Optional with spectacles" })[step] || "Enrollment completed";
-}
-function captureVideoFrame(video) {
-  return new Promise((resolve, reject) => {
-    const canvas = document.createElement("canvas");
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error("Unable to capture frame.")), "image/jpeg", 0.9);
-  });
-}
-function buildMobileLink(task, backendUrl) {
-  const host = getNetworkHost(backendUrl);
-  const origin = host ? `${location.protocol}//${host}:${location.port || "5173"}` : location.origin;
-  const url = new URL(origin + "/mobile");
-  Object.entries(task).forEach(([key, value]) => value !== undefined && url.searchParams.set(key, value));
-  return url.toString();
-}
-function getNetworkHost(backendUrl) {
-  try {
-    const host = new URL(backendUrl).hostname;
-    return host === "localhost" || host === "127.0.0.1" ? "" : host;
-  } catch {
-    return "";
-  }
-}
-function signalCaptured() {
-  navigator.vibrate?.(120);
-  try {
-    const ctx = new (window.AudioContext || window.webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.frequency.value = 880;
-    gain.gain.value = 0.08;
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start();
-    setTimeout(() => { osc.stop(); ctx.close(); }, 120);
-  } catch {}
-}
-function titleCase(value) { return value ? value.charAt(0).toUpperCase() + value.slice(1) : ""; }
-function toUiType(value) { return titleCase(value || "student"); }
-function toApiType(value) { return String(value || "student").toLowerCase(); }
-function toUiStatus(value) {
-  const normalized = String(value || "active").toLowerCase();
-  if (normalized === "not_started" || normalized === "in_progress") return "Pending";
-  if (normalized === "completed") return "Completed";
-  return titleCase(normalized);
-}
-function toApiFaceStatus(value) {
-  return String(value || "").toLowerCase() === "completed" ? "completed" : "not_started";
-}
-function mapApiPerson(person) {
-  const type = toUiType(person.person_type);
+function mapPerson(person) {
   return {
     ...person,
-    id: person.id,
-    code: person.person_code || "",
-    name: person.full_name || "",
-    phone: person.guardian_phone || person.phone || "",
-    type,
-    parentName: person.guardian_name || "",
-    email: person.email || "",
-    designation: person.designation || "",
-    department: person.department || "",
-    membershipType: person.membership_type || "",
-    planName: person.plan_name || "",
-    level: person.level_class || "",
-    timing: person.timing_id || "",
-    joiningDate: person.joining_date || "",
-    notes: person.notes || "",
-    category: person.category_program || "",
-    batch: person.batch_name || "",
-    status: toUiStatus(person.status),
-    faceStatus: toUiStatus(person.face_enrollment_status),
-    enrolled: person.face_enrollment_status === "completed"
+    course_name: person.course_name || person.category_program || "",
+    batch_name: person.batch_name || "",
+    status: person.status || "active",
+    face_enrollment_status: person.face_enrollment_status || "not_started"
   };
 }
-function mapApiTiming(timing) {
-  return {
-    ...timing,
-    id: timing.id,
-    name: timing.name || "Timing",
-    category: timing.category_program || "",
-    batch: timing.batch_name || "",
-    start: timing.start_time || "",
-    state: timing.status === "active" ? "Idle" : toUiStatus(timing.status),
-    durationSeconds: 2700
-  };
-}
-function mapApiAttendance(record) {
+
+function mapAttendance(record) {
   return {
     ...record,
-    id: record.id,
-    name: record.person_name || "Unknown",
-    code: record.person_code || "-",
-    type: toUiType(record.person_type || ""),
-    category: record.category_program || "-",
-    batch: record.batch_name || "-",
     status: toUiStatus(record.status),
-    confidence: Math.round(Number(record.confidence_score || 0) * 100) || 0,
-    time: record.marked_time || record.created_at || new Date().toISOString()
+    course_name: record.course_name || record.category_program || "",
+    batch_name: record.batch_name || "",
+    marked_time: record.marked_time || record.created_at || new Date().toISOString()
   };
 }
-function toPersonPayload(form, type) {
-  const personType = toApiType(type);
+
+function toPersonPayload(form, apiType) {
   return {
-    person_code: form.code,
-    full_name: form.name,
-    phone: personType === "student" ? null : form.phone || null,
+    person_code: form.person_code,
+    full_name: form.full_name,
+    phone: apiType === "student" ? null : form.phone || null,
     email: form.email || null,
-    person_type: personType,
-    guardian_name: form.parentName || null,
-    guardian_phone: personType === "student" ? form.phone || null : null,
-    category_program: form.category || null,
-    batch_name: form.batch || null,
-    level_class: form.level || null,
-    designation: form.designation || null,
-    department: form.department || null,
-    membership_type: form.membershipType || null,
-    plan_name: form.planName || null,
-    timing_id: form.timing ? Number(form.timing) : null,
-    joining_date: form.joiningDate || form.startDate || null,
-    status: String(form.status || "Active").toLowerCase(),
-    face_enrollment_status: toApiFaceStatus(form.faceStatus),
+    person_type: apiType,
+    guardian_name: form.guardian_name || null,
+    guardian_phone: apiType === "student" ? form.phone || null : null,
+    course_id: form.course_id ? Number(form.course_id) : null,
+    batch_id: form.batch_id ? Number(form.batch_id) : null,
+    level_class: form.level_class || null,
+    joining_date: form.joining_date || null,
+    status: form.status,
+    face_enrollment_status: form.face_enrollment_status,
     notes: form.notes || null
   };
 }
-function useClock() { const [t, setT] = useState(new Date()); useEffect(() => { const id = setInterval(() => setT(new Date()), 1000); return () => clearInterval(id); }, []); return t; }
-function useBackendStatus(url) {
-  const [status, setStatus] = useState("Checking");
-  useEffect(() => {
-    if (!url) { setStatus("Offline"); return; }
-    const controller = new AbortController();
-    const id = setTimeout(() => controller.abort(), 1400);
-    fetch(`${url.replace(/\/$/, "")}/health`, { signal: controller.signal }).then(response => setStatus(response.ok ? "Online" : "Offline")).catch(() => setStatus("Offline")).finally(() => clearTimeout(id));
-    return () => { controller.abort(); clearTimeout(id); };
-  }, [url]);
-  return status;
+
+function courseName(courses, id) {
+  return courses.find(course => Number(course.id) === Number(id))?.course_name || "-";
 }
-function useCamera() {
-  const ref = useRef(null);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    let stream;
-    navigator.mediaDevices?.getUserMedia({ video: { facingMode: "user" } })
-      .then(s => {
-        stream = s;
-        setError("");
-        if (ref.current) ref.current.srcObject = s;
-      })
-      .catch(err => setError(`Camera not opened: ${err.message || "permission denied"}. Allow camera permission or use HTTPS/local HTTPS tunnel on phone.`));
-    return () => stream?.getTracks().forEach(track => track.stop());
-  }, []);
-  return { ref, error };
+
+function batchName(batches, id) {
+  return batches.find(batch => Number(batch.id) === Number(id))?.batch_name || "-";
+}
+
+function statusOptions() {
+  return [{ value: "active", label: "Active" }, { value: "pending", label: "Pending" }, { value: "inactive", label: "Inactive" }];
+}
+
+function toUiStatus(value) {
+  const normalized = String(value || "pending").toLowerCase();
+  if (normalized === "not_started" || normalized === "in_progress") return "Pending";
+  if (normalized === "already marked") return "Already Marked";
+  return titleCase(normalized);
+}
+
+function titleCase(value) {
+  return String(value || "").replace(/_/g, " ").replace(/\w\S*/g, text => text.charAt(0).toUpperCase() + text.slice(1).toLowerCase());
+}
+
+function onlyNumbers(value) {
+  return value.replace(/\D/g, "");
+}
+
+function formatTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 createRoot(document.getElementById("root")).render(<App />);

@@ -11,6 +11,8 @@ class PersonBase(BaseModel):
     gender: str | None = None
     guardian_name: str | None = None
     guardian_phone: str | None = None
+    course_id: int | None = None
+    batch_id: int | None = None
     category_program: str | None = None
     batch_name: str | None = None
     level_class: str | None = None
@@ -38,6 +40,8 @@ class PersonUpdate(BaseModel):
     gender: str | None = None
     guardian_name: str | None = None
     guardian_phone: str | None = None
+    course_id: int | None = None
+    batch_id: int | None = None
     category_program: str | None = None
     batch_name: str | None = None
     level_class: str | None = None

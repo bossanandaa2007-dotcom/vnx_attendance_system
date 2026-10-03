@@ -5,21 +5,33 @@ import numpy as np
 
 from app.config import settings
 
-try:
-    from deepface import DeepFace
-except Exception:
-    DeepFace = None
+DeepFace = None
+DeepFaceImportError = None
+
+
+def get_deepface():
+    global DeepFace, DeepFaceImportError
+    if DeepFace is not None:
+        return DeepFace
+    if DeepFaceImportError is not None:
+        raise RuntimeError(f"DeepFace failed to import: {DeepFaceImportError}")
+    try:
+        from deepface import DeepFace as ImportedDeepFace
+    except Exception as exc:
+        DeepFaceImportError = exc
+        raise RuntimeError(f"DeepFace failed to import: {exc}") from exc
+    DeepFace = ImportedDeepFace
+    return DeepFace
 
 ENROLLMENT_STEPS = ["front", "left", "right", "close", "far", "with_specs"]
 
 
 def generate_embedding(image):
     # DeepFace creates the MVP face embedding. We do not train any model here.
-    if DeepFace is None:
-        raise RuntimeError("DeepFace is not installed or failed to import. Install requirements and retry.")
+    deepface = get_deepface()
     try:
         rgb = image[:, :, ::-1]
-        reps = DeepFace.represent(rgb, model_name="Facenet", enforce_detection=False)
+        reps = deepface.represent(rgb, model_name="Facenet", enforce_detection=False)
         if not reps:
             raise RuntimeError("DeepFace did not return an embedding.")
         return reps[0]["embedding"]

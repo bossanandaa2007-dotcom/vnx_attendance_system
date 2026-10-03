@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.face_embedding import FaceEmbedding, FaceEnrollment
 from app.models.person import Person
+from app.serializers import face_enrollment_data, person_data
 from app.services.face_service import best_match, generate_embedding, next_step_for
 from app.services.quality_service import MESSAGES, check_pose, check_quality
 from app.utils.image_utils import decode_base64_image, decode_image_bytes
@@ -34,6 +35,8 @@ async def read_face_payload(request: Request):
             "current_step": str(form.get("current_step") or "front"),
             "has_specs": str(form.get("has_specs", "false")).lower() == "true",
             "session_id": int(form.get("session_id")) if form.get("session_id") else None,
+            "course_id": int(form.get("course_id")) if form.get("course_id") else None,
+            "batch_id": int(form.get("batch_id")) if form.get("batch_id") else None,
             "device_name": form.get("device_name"),
             "image": image,
         }
@@ -43,9 +46,20 @@ async def read_face_payload(request: Request):
         "current_step": body.get("current_step", "front"),
         "has_specs": bool(body.get("has_specs", False)),
         "session_id": body.get("session_id"),
+        "course_id": body.get("course_id"),
+        "batch_id": body.get("batch_id"),
         "device_name": body.get("device_name"),
         "image": decode_base64_image(body.get("image_base64") or ""),
     }
+
+
+@router.get("/enrollment/users")
+def enrollment_users(course_id: int, batch_id: int, db: Session = Depends(get_db)):
+    rows = db.query(Person).filter(
+        Person.course_id == course_id,
+        Person.batch_id == batch_id,
+    ).order_by(Person.full_name.asc()).all()
+    return {"success": True, "message": "Enrollment users fetched", "data": [person_data(row) for row in rows]}
 
 
 @router.post("/enrollment/start/{person_id}")
@@ -77,7 +91,7 @@ def start_enrollment(person_id: int, db: Session = Depends(get_db)):
         db.add(enrollment)
     db.commit()
     db.refresh(enrollment)
-    return {"success": True, "message": "Face enrollment started", "data": enrollment}
+    return {"success": True, "message": "Face enrollment started", "data": face_enrollment_data(enrollment)}
 
 
 @router.post("/enrollment/frame")
@@ -184,7 +198,7 @@ def complete_enrollment(person_id: int, db: Session = Depends(get_db)):
 @router.get("/enrollment/status/{person_id}")
 def enrollment_status(person_id: int, db: Session = Depends(get_db)):
     enrollment = db.query(FaceEnrollment).filter(FaceEnrollment.person_id == person_id).order_by(FaceEnrollment.id.desc()).first()
-    return {"success": True, "message": "Enrollment status fetched", "data": enrollment}
+    return {"success": True, "message": "Enrollment status fetched", "data": face_enrollment_data(enrollment)}
 
 
 @router.post("/recognize")
@@ -201,11 +215,20 @@ async def recognize(request: Request, db: Session = Depends(get_db)):
     except RuntimeError as exc:
         return {"success": False, "recognized": False, "status": "embedding_failed", "message": str(exc)}
 
-    embeddings = db.query(FaceEmbedding).filter(FaceEmbedding.is_active == True).all()
+    embeddings_query = db.query(FaceEmbedding).join(Person, FaceEmbedding.person_id == Person.id).filter(FaceEmbedding.is_active == True)
+    if payload["course_id"]:
+        embeddings_query = embeddings_query.filter(Person.course_id == payload["course_id"])
+    if payload["batch_id"]:
+        embeddings_query = embeddings_query.filter(Person.batch_id == payload["batch_id"])
+    embeddings = embeddings_query.all()
     match = best_match(live_embedding, embeddings)
     if not match:
         return {"success": True, "recognized": False, "status": "unknown", "message": "Unknown face"}
     person = db.get(Person, match["embedding"].person_id)
+    if payload["course_id"] and person.course_id != payload["course_id"]:
+        return {"success": True, "recognized": False, "status": "unknown", "message": "Unknown face"}
+    if payload["batch_id"] and person.batch_id != payload["batch_id"]:
+        return {"success": True, "recognized": False, "status": "unknown", "message": "Unknown face"}
     return {
         "success": True,
         "recognized": True,

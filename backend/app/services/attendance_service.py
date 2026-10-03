@@ -16,6 +16,13 @@ def mark_attendance(db: Session, payload):
         return None, "Person not found"
 
     session = db.get(AttendanceSession, payload.session_id) if payload.session_id else None
+    expected_course_id = session.course_id if session else payload.course_id
+    expected_batch_id = session.batch_id if session else payload.batch_id
+    if person.person_type == "student":
+        if expected_course_id and person.course_id != expected_course_id:
+            return None, "Person does not belong to this course"
+        if expected_batch_id and person.batch_id != expected_batch_id:
+            return None, "Person does not belong to this batch"
     existing = db.query(AttendanceRecord).filter(
         AttendanceRecord.person_id == person.id,
         AttendanceRecord.session_id == payload.session_id,
@@ -44,6 +51,8 @@ def mark_attendance(db: Session, payload):
         person_code=person.person_code,
         person_name=person.full_name,
         person_type=person.person_type,
+        course_id=person.course_id or expected_course_id,
+        batch_id=person.batch_id or expected_batch_id,
         category_program=person.category_program,
         batch_name=person.batch_name,
         level_class=person.level_class,

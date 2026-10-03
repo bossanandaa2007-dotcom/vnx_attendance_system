@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
-from app.models import attendance, face_embedding, person, sync_log, timing
-from app.routes import attendance_routes, face_routes, person_routes, sheet_routes, timing_routes
+from app.models import attendance, course, face_embedding, person, sync_log, timing
+from app.routes import attendance_routes, course_routes, face_routes, person_routes, sheet_routes, timing_routes
+from app.schema import init_database_schema
 
 app = FastAPI(title="Vernex Smart Attendance AI", version="0.1.0")
 
@@ -24,6 +25,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def startup():
+    init_database_schema()
 
 
 @app.exception_handler(Exception)
@@ -43,6 +49,8 @@ def health(db: Session = Depends(get_db)):
 
 
 app.include_router(person_routes.router)
+app.include_router(person_routes.legacy_router)
+app.include_router(course_routes.router)
 app.include_router(timing_routes.router)
 app.include_router(attendance_routes.router)
 app.include_router(face_routes.router)

@@ -5,6 +5,8 @@ from pydantic import BaseModel
 class AttendanceSessionCreate(BaseModel):
     session_name: str
     session_type: str
+    course_id: int
+    batch_id: int
     category_program: str | None = None
     batch_name: str | None = None
     timing_id: int | None = None
@@ -18,6 +20,8 @@ class AttendanceMark(BaseModel):
     session_id: int | None = None
     person_id: int | None = None
     person_code: str | None = None
+    course_id: int | None = None
+    batch_id: int | None = None
     confidence_score: float | None = None
     recognition_method: str = "face_ai"
     device_name: str | None = None
@@ -32,6 +36,8 @@ class AttendanceOut(BaseModel):
     person_code: str | None
     person_name: str | None
     person_type: str | None
+    course_id: int | None
+    batch_id: int | None
     attendance_date: date
     marked_time: datetime
     status: str

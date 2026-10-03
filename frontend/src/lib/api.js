@@ -19,20 +19,61 @@ async function request(path, options = {}) {
   return payload.data ?? payload;
 }
 
-export function getPeople() {
-  return request("/people");
+function queryString(filters = {}) {
+  const params = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== "") params.set(key, value);
+  });
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+export function getPeople(filters = {}) {
+  return request(`/users${queryString(filters)}`);
 }
 
 export function createPerson(data) {
-  return request("/people/create", { method: "POST", body: JSON.stringify(data) });
+  return request("/users/create", { method: "POST", body: JSON.stringify(data) });
 }
 
 export function updatePerson(id, data) {
-  return request(`/people/${id}`, { method: "PUT", body: JSON.stringify(data) });
+  return request(`/users/${id}`, { method: "PUT", body: JSON.stringify(data) });
 }
 
 export function deletePerson(id) {
-  return request(`/people/${id}`, { method: "DELETE" });
+  return request(`/users/${id}`, { method: "DELETE" });
+}
+
+export function getCourses() {
+  return request("/courses");
+}
+
+export function createCourse(data) {
+  return request("/courses/create", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function updateCourse(id, data) {
+  return request(`/courses/${id}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+export function deleteCourse(id) {
+  return request(`/courses/${id}`, { method: "DELETE" });
+}
+
+export function getBatches(courseId) {
+  return request(`/batches${queryString({ course_id: courseId })}`);
+}
+
+export function createBatch(data) {
+  return request("/batches/create", { method: "POST", body: JSON.stringify(data) });
+}
+
+export function updateBatch(id, data) {
+  return request(`/batches/${id}`, { method: "PUT", body: JSON.stringify(data) });
+}
+
+export function deleteBatch(id) {
+  return request(`/batches/${id}`, { method: "DELETE" });
 }
 
 export function getTimings() {
@@ -51,6 +92,10 @@ export function getAttendanceToday() {
   return request("/attendance/today");
 }
 
+export function getAttendanceByDate(attendanceDate, filters = {}) {
+  return request(`/attendance/by-date${queryString({ attendance_date: attendanceDate, ...filters })}`);
+}
+
 export function markAttendance(data) {
   return request("/attendance/mark", { method: "POST", body: JSON.stringify(data) });
 }
@@ -61,6 +106,10 @@ export function startFaceEnrollment(personId) {
 
 export function getFaceEnrollmentStatus(personId) {
   return request(`/face/enrollment/status/${personId}`);
+}
+
+export function getEnrollmentUsers(courseId, batchId) {
+  return request(`/face/enrollment/users${queryString({ course_id: courseId, batch_id: batchId })}`);
 }
 
 export function sendEnrollmentFrame(formData) {

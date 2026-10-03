@@ -8,7 +8,7 @@ class FaceEnrollment(Base):
     __tablename__ = "face_enrollments"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    person_id: Mapped[int] = mapped_column(Integer, ForeignKey("people.id"), index=True)
+    person_id: Mapped[int] = mapped_column(Integer, ForeignKey("user_management.id"), index=True)
     enrollment_status: Mapped[str] = mapped_column(String(50), default="not_started")
     current_step: Mapped[str | None] = mapped_column(String(40))
     total_steps: Mapped[int] = mapped_column(Integer, default=5)
@@ -25,7 +25,7 @@ class FaceEmbedding(Base):
     __tablename__ = "face_embeddings"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    person_id: Mapped[int] = mapped_column(Integer, ForeignKey("people.id"), index=True)
+    person_id: Mapped[int] = mapped_column(Integer, ForeignKey("user_management.id"), index=True)
     embedding_vector: Mapped[str] = mapped_column(Text)
     pose_type: Mapped[str] = mapped_column(String(40))
     model_name: Mapped[str] = mapped_column(String(80), default="DeepFace")

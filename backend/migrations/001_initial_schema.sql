@@ -1,3 +1,22 @@
+CREATE TABLE IF NOT EXISTS courses (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(120) UNIQUE NOT NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'active',
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS course_batches (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(120) UNIQUE NOT NULL,
+    course_id INTEGER REFERENCES courses(id) ON DELETE SET NULL,
+    status VARCHAR(30) NOT NULL DEFAULT 'active',
+    notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS timings (
     id SERIAL PRIMARY KEY,
     name VARCHAR(140) NOT NULL,
@@ -15,13 +34,13 @@ CREATE TABLE IF NOT EXISTS timings (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS people (
+CREATE TABLE IF NOT EXISTS user_management (
     id SERIAL PRIMARY KEY,
     person_code VARCHAR(80) UNIQUE NOT NULL,
     full_name VARCHAR(160) NOT NULL,
     phone VARCHAR(20),
     email VARCHAR(160),
-    person_type VARCHAR(30) NOT NULL,
+    person_type VARCHAR(30) NOT NULL CHECK (person_type IN ('student', 'member', 'admin')),
     gender VARCHAR(30),
     guardian_name VARCHAR(160),
     guardian_phone VARCHAR(20),
@@ -43,7 +62,7 @@ CREATE TABLE IF NOT EXISTS people (
 
 CREATE TABLE IF NOT EXISTS face_enrollments (
     id SERIAL PRIMARY KEY,
-    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES user_management(id) ON DELETE CASCADE,
     enrollment_status VARCHAR(50) NOT NULL DEFAULT 'not_started',
     current_step VARCHAR(40),
     total_steps INTEGER NOT NULL DEFAULT 5,
@@ -58,7 +77,7 @@ CREATE TABLE IF NOT EXISTS face_enrollments (
 
 CREATE TABLE IF NOT EXISTS face_embeddings (
     id SERIAL PRIMARY KEY,
-    person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,
+    person_id INTEGER NOT NULL REFERENCES user_management(id) ON DELETE CASCADE,
     embedding_vector TEXT NOT NULL,
     pose_type VARCHAR(40) NOT NULL,
     model_name VARCHAR(80) NOT NULL DEFAULT 'DeepFace',
@@ -91,7 +110,7 @@ CREATE TABLE IF NOT EXISTS attendance_sessions (
 CREATE TABLE IF NOT EXISTS attendance_records (
     id SERIAL PRIMARY KEY,
     session_id INTEGER REFERENCES attendance_sessions(id),
-    person_id INTEGER REFERENCES people(id),
+    person_id INTEGER REFERENCES user_management(id) ON DELETE SET NULL,
     person_code VARCHAR(80),
     person_name VARCHAR(160),
     person_type VARCHAR(30),
@@ -126,8 +145,10 @@ CREATE TABLE IF NOT EXISTS sheet_sync_logs (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX IF NOT EXISTS idx_people_type ON people(person_type);
-CREATE INDEX IF NOT EXISTS idx_people_category ON people(category_program);
-CREATE INDEX IF NOT EXISTS idx_people_batch ON people(batch_name);
+CREATE INDEX IF NOT EXISTS idx_courses_name ON courses(name);
+CREATE INDEX IF NOT EXISTS idx_course_batches_name ON course_batches(name);
+CREATE INDEX IF NOT EXISTS idx_user_management_type ON user_management(person_type);
+CREATE INDEX IF NOT EXISTS idx_user_management_category ON user_management(category_program);
+CREATE INDEX IF NOT EXISTS idx_user_management_batch ON user_management(batch_name);
 CREATE INDEX IF NOT EXISTS idx_attendance_date ON attendance_records(attendance_date);
 CREATE INDEX IF NOT EXISTS idx_attendance_person ON attendance_records(person_id);

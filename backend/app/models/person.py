@@ -1,11 +1,11 @@
-from sqlalchemy import Date, DateTime, Integer, String, Text, func
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
 
 
 class Person(Base):
-    __tablename__ = "people"
+    __tablename__ = "user_management"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     person_code: Mapped[str] = mapped_column(String(80), unique=True, index=True)
@@ -16,6 +16,8 @@ class Person(Base):
     gender: Mapped[str | None] = mapped_column(String(30))
     guardian_name: Mapped[str | None] = mapped_column(String(160))
     guardian_phone: Mapped[str | None] = mapped_column(String(20))
+    course_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("courses.id", ondelete="SET NULL"), index=True)
+    batch_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("batches.id", ondelete="SET NULL"), index=True)
     category_program: Mapped[str | None] = mapped_column(String(120), index=True)
     batch_name: Mapped[str | None] = mapped_column(String(120), index=True)
     level_class: Mapped[str | None] = mapped_column(String(120))

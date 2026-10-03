@@ -8,6 +8,7 @@ from app.database import Base, engine
 
 # import all models so SQLAlchemy registers tables
 from app.models.person import Person
+from app.models.course import Course, CourseBatch
 from app.models.timing import Timing
 from app.models.face_embedding import FaceEnrollment, FaceEmbedding
 from app.models.attendance import AttendanceSession, AttendanceRecord

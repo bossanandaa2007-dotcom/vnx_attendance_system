@@ -5,18 +5,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from app.database import Base, engine
-
-# import all models so SQLAlchemy registers tables
-from app.models.person import Person
-from app.models.timing import Timing
-from app.models.face_embedding import FaceEnrollment, FaceEmbedding
-from app.models.attendance import AttendanceSession, AttendanceRecord
-from app.models.sync_log import SheetSyncLog
+from app.schema import init_database_schema
 
 def main():
-    Base.metadata.create_all(bind=engine)
-    print("Database tables created successfully")
+    init_database_schema()
+    print("Database schema is ready")
 
 if __name__ == "__main__":
     main()
