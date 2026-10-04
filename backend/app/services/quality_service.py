@@ -9,18 +9,18 @@ MESSAGES = {
     "too_close": "Face too close. Move backward.",
     "not_centered": "Keep your face centered inside the circle.",
     "sunglasses": "Please remove sunglasses.",
+    "spoof": "Photo or screen detected. Show your real face to the camera.",
     "transparent_specs": "Transparent spectacles detected. You can continue, but removing specs improves enrollment accuracy.",
 }
 
 
-def detect_face(image):
+# Eye shift inside the face box (share of its width) that counts as a real head turn, roughly 15 degrees.
+MIN_HEAD_TURN = 0.06
+
+
+def check_quality(image, faces, reject_sunglasses=True):
+    # faces: [x, y, w, h] boxes from the YOLO detector (face_service.detect_faces).
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    return gray, cascade.detectMultiScale(gray, 1.1, 5)
-
-
-def check_quality(image, reject_sunglasses=True):
-    gray, faces = detect_face(image)
     print("detected face count", len(faces))
     brightness = float(gray.mean())
     blur = float(cv2.Laplacian(gray, cv2.CV_64F).var())
@@ -57,15 +57,18 @@ def check_quality(image, reject_sunglasses=True):
     }
 
 
-def check_pose(image, quality, step):
+def check_pose(image, quality, step, turn=None):
+    # turn: face_service.head_turn, positive when the head is turned to the person's own left.
     ratio = quality["face_ratio"]
     cx = quality["center_x_ratio"]
     if step == "front" and abs(cx - 0.5) > 0.18:
         return False, "Keep your face centered inside the circle."
-    if step == "left" and cx > 0.58:
-        return False, "Move your face slightly to the left."
-    if step == "right" and cx < 0.42:
-        return False, "Move your face slightly to the right."
+    if turn is not None and step in ("left", "right"):
+        wanted = turn if step == "left" else -turn
+        if wanted <= -MIN_HEAD_TURN:
+            return False, "Turn your head the other way."
+        if wanted < MIN_HEAD_TURN:
+            return False, f"Turn your head a little more to your {step}."
     if step == "close" and ratio < 0.22:
         return False, "Face too far. Move closer."
     if step == "far" and ratio > 0.24:

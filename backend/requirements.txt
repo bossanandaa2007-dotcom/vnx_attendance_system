@@ -8,5 +8,7 @@ python-multipart
 requests
 opencv-python
 numpy
-deepface
+deepface==0.0.101
+tf-keras
+ultralytics
 pytest

@@ -33,4 +33,5 @@ class Person(Base):
     created_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[DateTime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    embeddings = relationship("FaceEmbedding", back_populates="person")
+    # A person's reference faces are deleted with them; without the cascade SQLAlchemy tries to blank person_id.
+    embeddings = relationship("FaceEmbedding", back_populates="person", cascade="all, delete-orphan")

@@ -1,4 +1,5 @@
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "http://localhost:8000").replace(/\/$/, "");
+// "/api" is proxied to FastAPI by Vite, so a phone on the same Wi-Fi reaches the backend through this origin.
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
 
 async function request(path, options = {}) {
   const isFormData = options.body instanceof FormData;
@@ -88,6 +89,10 @@ export function startAttendanceSession(data) {
   return request("/attendance/session/start", { method: "POST", body: JSON.stringify(data) });
 }
 
+export function completeAttendanceSession(sessionId) {
+  return request(`/attendance/session/${sessionId}/complete`, { method: "POST" });
+}
+
 export function getAttendanceToday() {
   return request("/attendance/today");
 }
@@ -117,8 +122,7 @@ export function sendEnrollmentFrame(formData) {
 }
 
 export function recognizeFace(formData) {
-  const data = formData instanceof FormData ? Object.fromEntries(formData.entries()) : formData;
-  return request("/face/recognize", { method: "POST", body: JSON.stringify(data || {}) });
+  return request("/face/recognize", { method: "POST", body: formData });
 }
 
 export { API_BASE_URL };

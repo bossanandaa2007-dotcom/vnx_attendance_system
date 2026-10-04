@@ -17,7 +17,7 @@ backend/
 ## Setup
 
 ```powershell
-cd D:\VerneX-Attendance-System\backend
+cd backend
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
@@ -28,7 +28,7 @@ pip install -r requirements.txt
 Use your Supabase PostgreSQL connection string:
 
 ```env
-DATABASE_URL=postgresql://postgres.PROJECT_REF:ENCODED_PASSWORD@aws-1-ap-south-1.pooler.supabase.com:6543/postgres
+DATABASE_URL=postgresql://postgres.PROJECT_REF:ENCODED_PASSWORD@aws-0-REGION.pooler.supabase.com:6543/postgres
 FRONTEND_ORIGIN=http://localhost:5173
 FACE_MATCH_THRESHOLD=0.60
 GOOGLE_SCRIPT_URL=
@@ -115,4 +115,4 @@ http://localhost:8000/health
 - `POST /sheet/sync-pending`
 - `GET /sheet/status`
 
-Face endpoints currently return clean MVP placeholder responses. OpenCV/DeepFace can be connected later inside `app/services/`.
+The face endpoints run DeepFace (YOLOv8 detector + Facenet512). See the root `README.md` for the full run guide, workflow and face settings.

@@ -1,3 +1,5 @@
+import threading
+
 from sqlalchemy import text
 from fastapi import FastAPI, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,6 +11,7 @@ from app.database import get_db
 from app.models import attendance, course, face_embedding, person, sync_log, timing
 from app.routes import attendance_routes, course_routes, face_routes, person_routes, sheet_routes, timing_routes
 from app.schema import init_database_schema
+from app.services.face_service import warm_up
 
 app = FastAPI(title="Vernex Smart Attendance AI", version="0.1.0")
 
@@ -30,6 +33,7 @@ app.add_middleware(
 @app.on_event("startup")
 def startup():
     init_database_schema()
+    threading.Thread(target=warm_up, daemon=True).start()
 
 
 @app.exception_handler(Exception)

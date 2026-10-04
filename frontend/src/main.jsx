@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Activity,
@@ -19,6 +19,7 @@ import {
   ScanFace,
   Search,
   Settings,
+  SwitchCamera,
   Trash2,
   UserCheck,
   Users,
@@ -26,6 +27,7 @@ import {
 } from "lucide-react";
 import {
   API_BASE_URL,
+  completeAttendanceSession,
   createBatch,
   createCourse,
   createPerson,
@@ -39,7 +41,8 @@ import {
   getEnrollmentUsers,
   getPeople,
   getTimings,
-  markAttendance,
+  recognizeFace,
+  sendEnrollmentFrame,
   startAttendanceSession,
   startFaceEnrollment,
   updateBatch,
@@ -436,6 +439,8 @@ function PeoplePage({ page, data }) {
   </Page>;
 }
 
+const ENROLLMENT_FIRST_STEP = { step: "front", instruction: "Look straight", progress: 0 };
+
 function FaceEnrollment({ data }) {
   const [courseId, setCourseId] = useState("");
   const [batchId, setBatchId] = useState("");
@@ -443,6 +448,10 @@ function FaceEnrollment({ data }) {
   const [studentId, setStudentId] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [capture, setCapture] = useState(null);
+  const [hint, setHint] = useState("");
+  const [tick, setTick] = useState(false);
+  const camera = useCamera(Boolean(capture));
   const batches = data.batches.filter(batch => Number(batch.course_id) === Number(courseId));
   useEffect(() => {
     setBatchId("");
@@ -463,6 +472,7 @@ function FaceEnrollment({ data }) {
       })
       .catch(err => setMessage(err.message || "Unable to load enrollment users."));
   }, [courseId, batchId]);
+  useEffect(() => { setCapture(null); setHint(""); }, [studentId]);
   const selected = students.find(student => Number(student.id) === Number(studentId));
   const start = async () => {
     if (!selected) { setMessage("Select course and batch to start enrollment."); return; }
@@ -470,14 +480,66 @@ function FaceEnrollment({ data }) {
     setMessage("");
     try {
       await startFaceEnrollment(selected.id);
+      setCapture(ENROLLMENT_FIRST_STEP);
+      setHint("");
       data.notify(`Enrollment started for ${selected.full_name}.`);
-      await data.refresh();
     } catch (err) {
       setMessage(err.message || "Unable to start enrollment.");
     } finally {
       setBusy(false);
     }
   };
+  const step = capture?.step;
+  useEffect(() => {
+    if (!tick) return;
+    const timer = setTimeout(() => setTick(false), 1500);
+    return () => clearTimeout(timer);
+  }, [tick]);
+  useEffect(() => {
+    if (!step) return;
+    // Auto capture: keep sending frames for the current step until the backend accepts one.
+    let stopped = false;
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const run = async () => {
+      // Time to read the new instruction and move before the next shot is taken.
+      await wait(2500);
+      while (!stopped) {
+        const shot = await camera.capture();
+        if (shot) {
+          try {
+            const form = new FormData();
+            form.append("image", shot.blob, "frame.jpg");
+            form.append("person_id", selected.id);
+            form.append("current_step", step);
+            const result = await sendEnrollmentFrame(form);
+            if (stopped) return;
+            setTick(true);
+            if (result.completed) {
+              // Leave the tick on screen for a moment before the camera closes.
+              await wait(1200);
+              if (stopped) return;
+              setCapture(null);
+              setHint("");
+              setStudents(rows => rows.map(row => row.id === selected.id ? { ...row, face_enrollment_status: "completed" } : row));
+              data.notify(`Face enrollment completed for ${selected.full_name}.`);
+              await data.refresh();
+            } else {
+              setCapture({ step: result.next_step, instruction: result.instruction, progress: result.progress_percentage });
+              setHint(result.message);
+            }
+            return;
+          } catch (err) {
+            if (stopped) return;
+            // The backend rejects a frame with the reason (no face, blurry, too far...), so show it and try again.
+            setHint(err.message || "Capture failed. Trying again.");
+          }
+        }
+        await wait(700);
+      }
+    };
+    run();
+    return () => { stopped = true; };
+  }, [step]);
   return <Page title="Face Enrollment" subtitle="Select Course, Batch, Student, then start enrollment.">
     <Alerts data={data} message={message} />
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-[.9fr_1.1fr]">
@@ -486,17 +548,32 @@ function FaceEnrollment({ data }) {
           <FormSelect label="Course" value={courseId} onChange={e => setCourseId(e.target.value)} options={data.courses.map(course => ({ value: course.id, label: course.course_name }))} empty="Create a course first" />
           <FormSelect label="Batch" value={batchId} onChange={e => setBatchId(e.target.value)} options={batches.map(batch => ({ value: batch.id, label: batch.batch_name }))} empty={courseId ? "Create a batch under this course" : "Select course first"} />
           <FormSelect label="Student" value={studentId} onChange={e => setStudentId(e.target.value)} options={students.map(student => ({ value: student.id, label: `${student.full_name} - ${student.person_code}` }))} empty={courseId && batchId ? "No students found in this batch" : "Select course and batch to start enrollment"} />
-          <button disabled={busy || !selected} className="h-11 rounded-xl bg-[#082248] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" onClick={start}>{busy ? "Starting..." : "Start Enrollment"}</button>
+          <button disabled={busy || !selected || Boolean(capture)} className="h-11 rounded-xl bg-[#082248] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" onClick={start}>{busy && !capture ? "Starting..." : "Start Enrollment"}</button>
         </div>
       </Card>
-      <Card title="Selected Student" action={<Badge status={selected?.face_enrollment_status === "completed" ? "Completed" : "Pending"} />}>
+      {capture ? <Card title="Enrollment Camera" action={<Badge status={`${capture.progress}% done`} />}>
+        <div className="grid gap-4">
+          <CameraView camera={camera}>
+            {tick && <div className="pointer-events-none absolute inset-0 grid place-items-center bg-emerald-500/20">
+              <div className="grid h-24 w-24 place-items-center rounded-full bg-emerald-500 text-white shadow-lg"><Check size={56} strokeWidth={3} /></div>
+            </div>}
+          </CameraView>
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+            <p className="text-sm font-semibold text-slate-500">Step: {titleCase(capture.step)}</p>
+            <p className="mt-1 text-xl font-bold text-[#082248]">{capture.instruction}</p>
+            {hint && <p className="mt-2 text-sm font-semibold text-amber-700">{hint}</p>}
+          </div>
+          <p className="text-sm font-semibold text-slate-500">Capturing automatically. Follow the instruction and hold still.</p>
+          <button className="h-11 rounded-xl border border-slate-200 font-semibold text-[#082248]" onClick={() => { setCapture(null); setHint(""); }}>Cancel</button>
+        </div>
+      </Card> : <Card title="Selected Student" action={<Badge status={selected?.face_enrollment_status === "completed" ? "Completed" : "Pending"} />}>
         {selected ? <div className="grid gap-3">
           <Info label="Name" value={selected.full_name} />
           <Info label="Code" value={selected.person_code} />
           <Info label="Course" value={selected.course_name} />
           <Info label="Batch" value={selected.batch_name} />
         </div> : <Empty title="Select course and batch to start enrollment" message="Only students assigned to the selected batch will appear here." />}
-      </Card>
+      </Card>}
     </div>
     <Card title="Enrollment Queue">
       <DataTable columns={["Student", "Code", "Course", "Batch", "Status"]} rows={students.map(student => [student.full_name, student.person_code, student.course_name, student.batch_name, <Badge status={student.face_enrollment_status === "completed" ? "Completed" : "Pending"} />])} empty={courseId && batchId ? "No students found in this batch" : "Select course and batch to start enrollment"} />
@@ -509,11 +586,59 @@ function AttendanceScanner({ data }) {
   const [batchId, setBatchId] = useState("");
   const [activeSession, setActiveSession] = useState(null);
   const [recognized, setRecognized] = useState(null);
+  const [scan, setScan] = useState({ faces: [], frame: null, status: "" });
+  const [marks, setMarks] = useState({});
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const camera = useCamera(Boolean(activeSession));
   const batches = data.batches.filter(batch => Number(batch.course_id) === Number(courseId));
   const students = data.people.filter(person => person.person_type === "student" && Number(person.course_id) === Number(courseId) && Number(person.batch_id) === Number(batchId));
   useEffect(() => { setBatchId(""); setActiveSession(null); setRecognized(null); }, [courseId]);
+  useEffect(() => {
+    setScan({ faces: [], frame: null, status: "" });
+    if (!activeSession) return;
+    setMarks({});
+    // Live loop: grab a frame from the camera, let the backend detect and recognize every face in it,
+    // then draw the boxes. The backend marks attendance itself, so one request per frame is enough.
+    let stopped = false;
+    const run = async () => {
+      while (!stopped) {
+        // A class is filmed from a distance, so keep more pixels per face than enrollment needs.
+        const shot = await camera.capture(960);
+        if (shot) {
+          try {
+            const form = new FormData();
+            form.append("image", shot.blob, "frame.jpg");
+            form.append("session_id", activeSession.id);
+            form.append("device_name", "frontend-scanner");
+            const result = await recognizeFace(form);
+            if (stopped) return;
+            const faces = result.faces || [];
+            const known = faces.filter(face => face.recognized);
+            const spoofs = faces.filter(face => face.status === "spoof").length;
+            setScan({ faces, frame: result.frame, status: faces.length ? `${faces.length} face(s) in view, ${known.length} recognized${spoofs ? `, ${spoofs} photo/screen rejected` : ""}` : "No face in view" });
+            if (known.length) {
+              setRecognized(known[0]);
+              setMarks(current => ({ ...current, ...Object.fromEntries(known.filter(face => face.attendance_status).map(face => [face.person_id, face.attendance_status])) }));
+            }
+            const fresh = faces.filter(face => face.record).map(face => mapAttendance(face.record));
+            if (fresh.length) {
+              data.setRecords(current => [...fresh, ...current]);
+              data.notify(`${fresh.map(record => record.person_name).join(", ")} marked ${fresh[0].status}.`);
+            }
+            setMessage("");
+          } catch (err) {
+            if (stopped) return;
+            setMessage(err.message || "Unable to recognize faces.");
+          }
+        }
+        // The next frame goes out as soon as this one is answered, so the boxes keep up with movement.
+        await new Promise(resolve => setTimeout(resolve, shot ? 20 : 500));
+      }
+    };
+    run();
+    return () => { stopped = true; };
+  }, [activeSession]);
   const start = async () => {
     if (!courseId || !batchId) { setMessage("Select course and batch to start attendance session."); return; }
     const course = data.courses.find(item => Number(item.id) === Number(courseId));
@@ -530,6 +655,7 @@ function AttendanceScanner({ data }) {
         session_date: new Date().toISOString().slice(0, 10),
         start_time: new Date().toTimeString().slice(0, 8)
       });
+      setRecognized(null);
       setActiveSession(session);
       data.notify("Attendance session started.");
     } catch (err) {
@@ -538,47 +664,33 @@ function AttendanceScanner({ data }) {
       setBusy(false);
     }
   };
-  const scan = async () => {
-    if (!activeSession) { setMessage("Start a course and batch session first."); return; }
-    const person = students.find(item => item.face_enrollment_status === "completed") || students[0];
-    if (!person) { setMessage("No students found in this batch."); return; }
-    setBusy(true);
-    setMessage("");
+  const stop = async () => {
+    const session = activeSession;
+    setActiveSession(null);
     try {
-      const record = await markAttendance({
-        session_id: activeSession.id,
-        person_id: person.id,
-        person_code: person.person_code,
-        course_id: Number(courseId),
-        batch_id: Number(batchId),
-        confidence_score: 0.94,
-        recognition_method: "face_ai",
-        device_name: "frontend-scanner"
-      });
-      const mapped = mapAttendance(record);
-      setRecognized(mapped);
-      data.setRecords([mapped, ...data.records]);
-      data.notify(`${person.full_name} marked ${mapped.status}.`);
+      await completeAttendanceSession(session.id);
+      data.notify("Attendance session completed.");
     } catch (err) {
-      setMessage(err.message || "Unable to mark attendance.");
-    } finally {
-      setBusy(false);
+      setMessage(err.message || "Unable to complete attendance session.");
     }
   };
-  return <Page title="Attendance Scanner" subtitle="Select Course, Batch, start a session, then mark only that batch.">
+  return <Page title="Attendance Scanner" subtitle="Select Course, Batch, start a session, then point the camera at the class.">
     <Alerts data={data} message={message} />
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-[1.1fr_.9fr]">
       <Card title="Scanner Camera" action={<Badge status={activeSession ? "Active" : "Pending"} />}>
-        <div className="grid aspect-video place-items-center rounded-lg border border-slate-200 bg-slate-950 text-center text-white">
-          <div><Camera className="mx-auto mb-3 text-cyan-300" size={42} /><p className="font-bold">{activeSession ? "Session running" : "Session stopped"}</p></div>
-        </div>
+        {activeSession ? <div className="grid gap-3">
+          <CameraView camera={camera} faces={scan.faces} frame={scan.frame} />
+          <p className="text-sm font-semibold text-slate-500">{scan.status || "Starting camera and loading face models. The first scan can take a minute."}</p>
+        </div> : <div className="grid aspect-video place-items-center rounded-lg border border-slate-200 bg-slate-950 text-center text-white">
+          <div><Camera className="mx-auto mb-3 text-cyan-300" size={42} /><p className="font-bold">Session stopped</p></div>
+        </div>}
       </Card>
       <Card title="Session Control">
         <div className="grid gap-4">
           <FormSelect label="Course" value={courseId} onChange={e => setCourseId(e.target.value)} options={data.courses.map(course => ({ value: course.id, label: course.course_name }))} empty="Create a course first" />
           <FormSelect label="Batch" value={batchId} onChange={e => setBatchId(e.target.value)} options={batches.map(batch => ({ value: batch.id, label: batch.batch_name }))} empty={courseId ? "Create a batch under this course" : "Select course first"} />
-          <button disabled={busy || !courseId || !batchId} className="h-11 rounded-xl bg-[#082248] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" onClick={start}>{busy ? "Starting..." : "Start Session"}</button>
-          <button disabled={busy || !activeSession} className="h-11 rounded-xl border border-slate-200 font-semibold text-[#082248] disabled:cursor-not-allowed disabled:opacity-60" onClick={scan}>{busy ? "Processing..." : "Simulate Scan"}</button>
+          <button disabled={busy || !courseId || !batchId || Boolean(activeSession)} className="h-11 rounded-xl bg-[#082248] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60" onClick={start}>{busy ? "Starting..." : "Start Session"}</button>
+          <button disabled={!activeSession} className="h-11 rounded-xl border border-slate-200 font-semibold text-[#082248] disabled:cursor-not-allowed disabled:opacity-60" onClick={stop}>Stop Session</button>
           {activeSession && <div className="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm">
             <Info label="Course" value={courseName(data.courses, activeSession.course_id)} />
             <Info label="Batch" value={batchName(data.batches, activeSession.batch_id)} />
@@ -588,17 +700,71 @@ function AttendanceScanner({ data }) {
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
             <p className="text-sm font-semibold text-slate-500">Recognized person</p>
             <p className="mt-2 text-2xl font-bold text-[#082248]">{recognized?.person_name || "Waiting for scan"}</p>
-            <div className="mt-3"><Badge status={recognized?.status || "Unknown"} /></div>
+            <div className="mt-3"><Badge status={recognized?.attendance_status || (recognized?.confirming ? "Confirming" : "Unknown")} /></div>
           </div>
         </div>
       </Card>
     </div>
     <Card title="Students in Selected Batch">
-      <DataTable columns={["Name", "Code", "Course", "Batch", "Face"]} rows={students.map(student => [student.full_name, student.person_code, student.course_name, student.batch_name, <Badge status={student.face_enrollment_status === "completed" ? "Completed" : "Pending"} />])} empty={courseId && batchId ? "No students found in this batch" : "Select course and batch to start attendance session"} />
+      <DataTable columns={["Name", "Code", "Course", "Batch", "Face", "Attendance"]} rows={students.map(student => [student.full_name, student.person_code, student.course_name, student.batch_name, <Badge status={student.face_enrollment_status === "completed" ? "Completed" : "Pending"} />, <Badge status={marks[student.id] || "Pending"} />])} empty={courseId && batchId ? "No students found in this batch" : "Select course and batch to start attendance session"} />
     </Card>
   </Page>;
 }
 
+function useCamera(active) {
+  const videoRef = useRef(null);
+  const [facing, setFacing] = useState("environment");
+  const [error, setError] = useState("");
+  useEffect(() => {
+    if (!active) return;
+    setError("");
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError(window.isSecureContext ? "This browser does not support camera access." : "The camera only works over HTTPS. Start the frontend with `npm run dev:https` and open the https:// link.");
+      return;
+    }
+    let stream = null;
+    let cancelled = false;
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+      .then(result => {
+        if (cancelled) { result.getTracks().forEach(track => track.stop()); return; }
+        stream = result;
+        if (videoRef.current) videoRef.current.srcObject = result;
+      })
+      .catch(err => setError(err.name === "NotAllowedError" ? "Camera permission denied. Allow camera access for this site and try again." : err.message || "Unable to open the camera."));
+    return () => {
+      cancelled = true;
+      stream?.getTracks().forEach(track => track.stop());
+    };
+  }, [active, facing]);
+  // Frames are downscaled before upload: faces stay large enough to recognize and requests stay small.
+  const capture = (maxWidth = 640) => new Promise(resolve => {
+    const video = videoRef.current;
+    if (!video || !video.videoWidth) { resolve(null); return; }
+    const scale = Math.min(1, maxWidth / video.videoWidth);
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(video.videoWidth * scale);
+    canvas.height = Math.round(video.videoHeight * scale);
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(blob => resolve(blob ? { blob, width: canvas.width, height: canvas.height } : null), "image/jpeg", 0.8);
+  });
+  const flip = () => setFacing(current => current === "environment" ? "user" : "environment");
+  return { videoRef, error, capture, flip };
+}
+
+function CameraView({ camera, faces = [], frame, children }) {
+  const percent = (value, total) => `${(value / total) * 100}%`;
+  return <div className="relative grid place-items-center overflow-hidden rounded-lg border border-slate-200 bg-slate-950">
+    <div className="relative inline-block max-w-full">
+      <video ref={camera.videoRef} className="block max-h-[70vh] min-h-48 max-w-full" autoPlay playsInline muted />
+      {frame && faces.map((face, index) => <div key={index} className={`absolute border-2 transition-all duration-150 ease-linear ${face.recognized ? "border-emerald-400" : "border-red-400"}`} style={{ left: percent(face.box.x, frame.width), top: percent(face.box.y, frame.height), width: percent(face.box.w, frame.width), height: percent(face.box.h, frame.height) }}>
+        <span className={`absolute left-0 top-full whitespace-nowrap px-1.5 py-0.5 text-xs font-bold text-white ${face.recognized ? "bg-emerald-500" : "bg-red-500"}`}>{face.recognized ? `${face.person_name} ${Math.round(face.confidence_score * 100)}%` : face.status === "spoof" ? "Photo detected" : "Unknown"}</span>
+      </div>)}
+    </div>
+    {children}
+    {camera.error && <p className="p-4 text-center text-sm font-semibold text-red-300">{camera.error}</p>}
+    <button className="absolute right-3 top-3 grid h-10 w-10 place-items-center rounded-full bg-white/90 text-[#082248]" onClick={camera.flip} aria-label="Switch camera"><SwitchCamera size={18} /></button>
+  </div>;
+}
 function Reports({ data }) {
   const [courseId, setCourseId] = useState("");
   const [batchId, setBatchId] = useState("");

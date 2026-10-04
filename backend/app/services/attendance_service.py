@@ -6,6 +6,14 @@ from app.services.sheet_service import sync_attendance_record
 from app.utils.time_utils import now_local, today_local
 
 
+def find_today_record(db: Session, person_id, session_id):
+    return db.query(AttendanceRecord).filter(
+        AttendanceRecord.person_id == person_id,
+        AttendanceRecord.session_id == session_id,
+        AttendanceRecord.attendance_date == today_local(),
+    ).first()
+
+
 def mark_attendance(db: Session, payload):
     person = None
     if payload.person_id:
@@ -23,11 +31,7 @@ def mark_attendance(db: Session, payload):
             return None, "Person does not belong to this course"
         if expected_batch_id and person.batch_id != expected_batch_id:
             return None, "Person does not belong to this batch"
-    existing = db.query(AttendanceRecord).filter(
-        AttendanceRecord.person_id == person.id,
-        AttendanceRecord.session_id == payload.session_id,
-        AttendanceRecord.attendance_date == today_local(),
-    ).first()
+    existing = find_today_record(db, person.id, payload.session_id)
     if existing:
         existing.duplicate_flag = True
         db.commit()

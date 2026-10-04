@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.course import Course, CourseBatch
+from app.models.face_embedding import FaceEnrollment
 from app.models.person import Person
 from app.schemas.person_schema import PersonCreate, PersonUpdate
 from app.serializers import person_data
@@ -114,6 +115,7 @@ def delete_person(person_id: int, db: Session = Depends(get_db)):
     person = db.get(Person, person_id)
     if not person:
         raise HTTPException(404, "User not found")
+    db.query(FaceEnrollment).filter(FaceEnrollment.person_id == person_id).delete()
     db.delete(person)
     db.commit()
     return ok("Deleted successfully")
